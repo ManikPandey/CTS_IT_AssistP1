@@ -1,4 +1,4 @@
-@tailwind base;
+/* @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
@@ -34,4 +34,31 @@
   body {
     @apply bg-background text-foreground;
   }
+} */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* These directives inject Tailwind's styles. 
+   Without them, the app will look like plain HTML.
+*/
+
+/* Optional: Custom scrollbar to make the app look native on Windows */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1; /* Gray-300 */
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8; /* Gray-400 */
 }

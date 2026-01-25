@@ -1,16 +1,48 @@
 import React from 'react';
+import { HashRouter, Routes, Route } from 'react-router-dom';
+import Layout from './components/Layout';
+import Dashboard from './pages/Dashboard';
+import Inventory from './pages/Inventory';
+
+// CRITICAL: Import global styles (Tailwind) here to ensure they load
+import './index.css';
 
 function App() {
   return (
-    <div className="flex h-screen w-full items-center justify-center bg-gray-100">
-      <div className="text-center p-10 bg-white shadow-xl rounded-xl">
-        <h1 className="text-4xl font-bold text-indigo-700 mb-4">IT Asset Manager V2</h1>
-        <p className="text-gray-600 mb-6">Enterprise Edition - Phase 1 Complete</p>
-        <button className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors">
-          System Status: Online
-        </button>
-      </div>
-    </div>
+    // HashRouter is preferred for Electron apps to handle file:// paths correctly
+    <HashRouter>
+      <Routes>
+        {/* Wrap everything in the Main Layout (Sidebar + Content Area) */}
+        <Route path="/" element={<Layout />}>
+          
+          {/* The default page is Dashboard */}
+          <Route index element={<Dashboard />} />
+          
+          {/* The Inventory Manager */}
+          <Route path="inventory" element={<Inventory />} />
+          
+          {/* Placeholders for future phases */}
+          <Route 
+            path="purchase-orders" 
+            element={
+              <div className="p-10 text-center">
+                <h2 className="text-2xl font-bold text-gray-400">Purchase Orders Module</h2>
+                <p className="text-gray-500">Coming in Phase 4</p>
+              </div>
+            } 
+          />
+          <Route 
+            path="settings" 
+            element={
+              <div className="p-10 text-center">
+                <h2 className="text-2xl font-bold text-gray-400">System Settings</h2>
+                <p className="text-gray-500">Configuration options will appear here.</p>
+              </div>
+            } 
+          />
+        </Route>
+      </Routes>
+    </HashRouter>
   );
 }
 

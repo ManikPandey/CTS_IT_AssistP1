@@ -4,21 +4,13 @@ const electron_1 = require("electron");
 // Expose protected methods that allow the renderer process to use
 // the ipcRenderer without exposing the entire object
 electron_1.contextBridge.exposeInMainWorld('api', {
-    // Example: window.api.send('channel', data)
-    send: (channel, data) => {
-        // Whitelist channels
-        let validChannels = ["toMain"];
-        if (validChannels.includes(channel)) {
-            electron_1.ipcRenderer.send(channel, data);
-        }
-    },
-    // Example: window.api.receive('channel', (data) => { ... })
-    receive: (channel, func) => {
-        let validChannels = ["fromMain"];
-        if (validChannels.includes(channel)) {
-            // Deliberately strip event as it includes `sender` 
-            electron_1.ipcRenderer.on(channel, (event, ...args) => func(...args));
-        }
-    },
-    // We will add database methods here later (e.g. getAssets, createPO)
+    // Dashboard Stats
+    getDashboardStats: () => electron_1.ipcRenderer.invoke('dashboard:get-stats'),
+    // Inventory: Categories
+    getCategories: () => electron_1.ipcRenderer.invoke('inventory:get-categories'),
+    // Inventory: Assets (Fetch logic)
+    getAssets: (categoryId) => electron_1.ipcRenderer.invoke('inventory:get-assets', categoryId),
+    // Inventory: Actions (Create & Update Categories)
+    createCategory: (data) => electron_1.ipcRenderer.invoke('inventory:create-category', data),
+    updateCategory: (id, data) => electron_1.ipcRenderer.invoke('inventory:update-category', { id, data }),
 });
