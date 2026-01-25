@@ -1,0 +1,152 @@
+// This is your Database Schema.
+// It defines the structure of your SQLite database.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+// ==========================================
+// 1. INVENTORY MANAGEMENT SYSTEM
+// ==========================================
+
+model Category {
+  id            String        @id @default(cuid())
+  name          String        @unique // e.g., "Hardware", "Software"
+  slug          String        @unique // e.g., "hardware"
+  description   String?
+  subCategories SubCategory[]
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+}
+
+model SubCategory {
+  id          String   @id @default(cuid())
+  name        String   // e.g., "Laptops", "Printers"
+  slug        String
+  categoryId  String
+  category    Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  
+  // This field stores the "Columns" for this subcategory.
+  // We store it as a JSON string to keep the database flexible.
+  // Example: '[{"key":"serial","label":"Serial No","type":"text","required":true}]'
+  fieldDefinitions String @default("[]") 
+  
+  assets      Asset[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([categoryId, slug])
+}
+
+model Asset {
+  id            String      @id @default(cuid())
+  subCategoryId String
+  subCategory   SubCategory @relation(fields: [subCategoryId], references: [id])
+  
+  // Flexible storage for asset details.
+  // We store the actual data (Serial No, Model, IP Address) here as a JSON string.
+  // This allows every subcategory to have completely different fields.
+  properties    String      @default("{}")
+  
+  // Status tracking
+  status        String      @default("ACTIVE") // ACTIVE, RETIRED, MAINTENANCE, IN_STOCK
+  
+  // Link to acquisition (Optional)
+  purchaseOrderId String?
+  purchaseOrder   PurchaseOrder? @relation(fields: [purchaseOrderId], references: [id])
+
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+}
+
+// ==========================================
+// 2. PROCUREMENT / PURCHASE ORDERS (PO)
+// ==========================================
+
+model Vendor {
+  id        String          @id @default(cuid())
+  name      String
+  gstin     String?
+  email     String?
+  phone     String?
+  address   String?
+  orders    PurchaseOrder[]
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+}
+
+model PurchaseOrder {
+  id              String   @id @default(cuid())
+  poNumber        String   @unique // e.g., VIT-B-PO-XX.XXXX
+  date            DateTime
+  
+  // Vendor Info
+  vendorId        String?
+  vendor          Vendor?  @relation(fields: [vendorId], references: [id])
+  vendorNameSnap  String?  // Snapshot of vendor name (history protection)
+  
+  // Addresses
+  billingAddress  String?
+  deliveryAddress String?
+
+  // Financials
+  totalAmount     Float    @default(0.0)
+  currency        String   @default("INR")
+
+  // Workflow / Meta Details (from your requirements)
+  status          String   @default("DRAFT") // DRAFT, ISSUED, PARTIAL, COMPLETED
+  requestRef      String?  // IT-25.0075
+  deptName        String?  // CTS
+  requestType     String?  // PRF
+  prfRef          String?  // 587
+  approvedBy      String?  // Gen Admin
+  
+  requestDate     DateTime?
+  actionDate      DateTime?
+
+  // Terms & Conditions
+  termsAndConditions String? // e.g., "Payment Terms: Against certified original invoice"
+  remarks            String?
+
+  // Relationships
+  lineItems       LineItem[]
+  assets          Asset[] // Assets created from this specific PO
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model LineItem {
+  id              String        @id @default(cuid())
+  purchaseOrderId String
+  purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  
+  srNo            Int
+  productName     String
+  quantity        Int
+  uom             String?       // Unit of Measure (Nos, Box, Mtrs)
+  unitPrice       Float
+  discount        Float         @default(0.0)
+  gst             Float         @default(18.0) // GST Percentage
+  totalAmount     Float         // (Price * Qty) + GST
+  
+  receivedQty     Int           @default(0) // Tracks how many items have physically arrived
+}
+
+// ==========================================
+// 3. SYSTEM & AUDIT
+// ==========================================
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  action      String   // CREATE, UPDATE, DELETE, IMPORT, EXPORT
+  entityType  String   // ASSET, PO, SYSTEM
+  entityId    String?
+  details     String?  // Description of what changed
+  timestamp   DateTime @default(now())
+}
