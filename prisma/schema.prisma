@@ -32,8 +32,6 @@ model SubCategory {
   category    Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
   
   // This field stores the "Columns" for this subcategory.
-  // We store it as a JSON string to keep the database flexible.
-  // Example: '[{"key":"serial","label":"Serial No","type":"text","required":true}]'
   fieldDefinitions String @default("[]") 
   
   assets      Asset[]
@@ -48,9 +46,7 @@ model Asset {
   subCategoryId String
   subCategory   SubCategory @relation(fields: [subCategoryId], references: [id])
   
-  // Flexible storage for asset details.
-  // We store the actual data (Serial No, Model, IP Address) here as a JSON string.
-  // This allows every subcategory to have completely different fields.
+  // Flexible storage for asset details (JSON)
   properties    String      @default("{}")
   
   // Status tracking
@@ -89,6 +85,7 @@ model PurchaseOrder {
   vendorId        String?
   vendor          Vendor?  @relation(fields: [vendorId], references: [id])
   vendorNameSnap  String?  // Snapshot of vendor name (history protection)
+  gstin           String?  // <--- ADDED THIS FIELD (Fixes the crash)
   
   // Addresses
   billingAddress  String?
