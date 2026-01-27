@@ -16,8 +16,10 @@ interface Window {
     createPurchaseOrder: (data: any) => Promise<{ success: boolean; data?: any; error?: string }>;
     deletePurchaseOrder: (id: string) => Promise<{ success: boolean; error?: string }>;
     getPurchaseOrder: (id: string) => Promise<{ success: boolean; data?: any; error?: string }>;
-    
-    // NEW TYPE
     receiveItems: (data: any) => Promise<{ success: boolean; error?: string }>;
+
+    // NEW: System & Settings
+    getAuditLogs: () => Promise<{ success: boolean; data: any[]; error?: string }>;
+    backupDatabase: () => Promise<{ success: boolean; filePath?: string; error?: string }>;
   }
 }

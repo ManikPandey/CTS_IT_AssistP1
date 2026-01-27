@@ -15,7 +15,9 @@ contextBridge.exposeInMainWorld('api', {
   createPurchaseOrder: (data: any) => ipcRenderer.invoke('purchase:create', data),
   deletePurchaseOrder: (id: string) => ipcRenderer.invoke('purchase:delete', id),
   getPurchaseOrder: (id: string) => ipcRenderer.invoke('purchase:get-one', id),
-  
-  // NEW: Receive Items
   receiveItems: (data: any) => ipcRenderer.invoke('purchase:receive-items', data),
+
+  // NEW: System & Settings
+  getAuditLogs: () => ipcRenderer.invoke('system:get-audit-logs'),
+  backupDatabase: () => ipcRenderer.invoke('system:backup'),
 });

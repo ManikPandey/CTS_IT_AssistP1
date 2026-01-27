@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { Search, Plus, FileSpreadsheet, Edit2, FolderPlus, Upload } from 'lucide-react';
+import React, { useEffect, useState, useMemo } from 'react';
+import { Search, Plus, FileSpreadsheet, Edit2, FolderPlus, Upload, Filter, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export default function Inventory() {
@@ -7,6 +7,10 @@ export default function Inventory() {
   const [selectedCatId, setSelectedCatId] = useState<string | null>(null);
   const [assets, setAssets] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  
+  // Search & Filter State
+  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState<string | null>(null);
 
   // Load Categories
   const loadCategories = async () => {
@@ -26,6 +30,7 @@ export default function Inventory() {
 
   useEffect(() => {
     loadAssets();
+    setSearchQuery(''); // Reset search when category changes
   }, [selectedCatId]);
 
   // Actions
@@ -47,19 +52,11 @@ export default function Inventory() {
 
   const handleImport = async () => {
     if(!confirm("Please ensure your Excel file has at least a 'Category' column. Continue?")) return;
-    
     setLoading(true);
     const res = await window.api.importExcel();
     setLoading(false);
-
     if (res.success) {
       alert(`Import Complete!\nProcessed: ${res.report.total}\nSuccess: ${res.report.success}\nErrors: ${res.report.errors.length}`);
-      
-      if (res.report.errors.length > 0) {
-        console.error("Import Errors:", res.report.errors);
-        alert("Some rows failed. Check console (Ctrl+Shift+I) for details.");
-      }
-      
       loadCategories(); 
       loadAssets();     
     } else if (res.error !== "No file selected") {
@@ -67,18 +64,49 @@ export default function Inventory() {
     }
   };
 
-  // NEW EXPORT FUNCTION
   const handleExport = async () => {
     setLoading(true);
     const res = await window.api.exportExcel();
     setLoading(false);
-
-    if (res.success) {
-      alert("Report generated successfully!\nLocation: " + res.filePath);
-    } else if (res.error !== "Export cancelled") {
-      alert("Export Failed: " + res.error);
-    }
+    if (res.success) alert("Report generated successfully!\nLocation: " + res.filePath);
+    else if (res.error !== "Export cancelled") alert("Export Failed: " + res.error);
   };
+
+  // --- SMART FILTERING LOGIC ---
+  const filteredAssets = useMemo(() => {
+    return assets.filter(asset => {
+      // 1. Status Filter
+      if (statusFilter && asset.status !== statusFilter) return false;
+
+      // 2. Search Query
+      if (!searchQuery) return true;
+      
+      const query = searchQuery.toLowerCase();
+      
+      // Check Static Fields
+      if (asset.status.toLowerCase().includes(query)) return true;
+      if (asset.subCategory?.name.toLowerCase().includes(query)) return true;
+      if (asset.subCategory?.category?.name.toLowerCase().includes(query)) return true;
+
+      // Check Dynamic Properties (JSON)
+      try {
+        const props = JSON.parse(asset.properties);
+        const values = Object.values(props).join(' ').toLowerCase();
+        if (values.includes(query)) return true;
+      } catch(e) {}
+
+      return false;
+    });
+  }, [assets, searchQuery, statusFilter]);
+
+  // Calculate Status Counts for Chips
+  const statusCounts = useMemo(() => {
+    const counts: any = { ALL: assets.length };
+    assets.forEach(a => {
+      counts[a.status] = (counts[a.status] || 0) + 1;
+    });
+    return counts;
+  }, [assets]);
 
   return (
     <div className="flex h-[calc(100vh-4rem)] -m-8">
@@ -106,9 +134,10 @@ export default function Inventory() {
                 <button
                 onClick={() => setSelectedCatId(cat.id)}
                 className={cn(
-                    "w-full text-left px-3 py-2 rounded-md text-sm font-medium transition-colors pr-8",
+                    "w-full text-left px-3 py-2 rounded-md text-sm font-medium transition-colors pr-8 truncate",
                     selectedCatId === cat.id ? "bg-indigo-50 text-indigo-700" : "text-gray-700 hover:bg-gray-100"
                 )}
+                title={cat.name}
                 >
                 {cat.name}
                 </button>
@@ -125,30 +154,58 @@ export default function Inventory() {
 
       {/* Main Content */}
       <div className="flex-1 flex flex-col min-w-0 bg-white">
+        
         {/* Toolbar */}
-        <div className="p-4 border-b border-gray-200 flex items-center justify-between gap-4">
-          <div className="relative flex-1 max-w-md">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-            <input 
-              type="text" 
-              placeholder="Search assets..." 
-              className="w-full pl-10 pr-4 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            />
+        <div className="p-4 border-b border-gray-200 space-y-4">
+          <div className="flex items-center justify-between gap-4">
+            <div className="relative flex-1 max-w-md">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <input 
+                type="text" 
+                placeholder="Search by Name, Serial, Model..." 
+                className="w-full pl-10 pr-10 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+              {searchQuery && (
+                <button onClick={() => setSearchQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                  <X size={14} />
+                </button>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <button onClick={handleImport} className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 bg-white border rounded-lg hover:bg-gray-50 transition-colors">
+                <Upload className="w-4 h-4 text-blue-600" />
+                Import
+              </button>
+              <button onClick={handleExport} className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 bg-white border rounded-lg hover:bg-gray-50 transition-colors">
+                <FileSpreadsheet className="w-4 h-4 text-green-600" />
+                Export
+              </button>
+              <button className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors">
+                <Plus className="w-4 h-4" />
+                Add Asset
+              </button>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <button onClick={handleImport} className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 bg-white border rounded-lg hover:bg-gray-50 transition-colors">
-              <Upload className="w-4 h-4 text-blue-600" />
-              Import Excel
+
+          {/* Status Filters */}
+          <div className="flex gap-2">
+            <button 
+              onClick={() => setStatusFilter(null)}
+              className={cn("px-3 py-1 text-xs font-medium rounded-full border transition-colors", !statusFilter ? "bg-gray-800 text-white border-gray-800" : "bg-white text-gray-600 border-gray-200 hover:border-gray-300")}
+            >
+              All ({statusCounts.ALL || 0})
             </button>
-            {/* EXPORT BUTTON - Linked to handleExport */}
-            <button onClick={handleExport} className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 bg-white border rounded-lg hover:bg-gray-50 transition-colors">
-              <FileSpreadsheet className="w-4 h-4 text-green-600" />
-              Export
-            </button>
-            <button className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors">
-              <Plus className="w-4 h-4" />
-              Add Asset
-            </button>
+            {['ACTIVE', 'RETIRED', 'IN_STOCK', 'MAINTENANCE'].map(status => (
+              <button 
+                key={status}
+                onClick={() => setStatusFilter(status)}
+                className={cn("px-3 py-1 text-xs font-medium rounded-full border transition-colors", statusFilter === status ? "bg-indigo-100 text-indigo-800 border-indigo-200" : "bg-white text-gray-600 border-gray-200 hover:border-gray-300")}
+              >
+                {status} ({statusCounts[status] || 0})
+              </button>
+            ))}
           </div>
         </div>
 
@@ -167,31 +224,27 @@ export default function Inventory() {
             <tbody className="divide-y divide-gray-200">
               {loading ? (
                 <tr><td colSpan={5} className="p-8 text-center text-gray-500">Loading assets...</td></tr>
-              ) : assets.length === 0 ? (
+              ) : filteredAssets.length === 0 ? (
                 <tr><td colSpan={5} className="p-12 text-center text-gray-500">
                     <p className="text-lg font-medium text-gray-900">No assets found</p>
-                    <p className="text-sm">Import an Excel file or add a new asset.</p>
+                    <p className="text-sm">Try adjusting your search or filters.</p>
                 </td></tr>
               ) : (
-                assets.map((asset) => {
+                filteredAssets.map((asset) => {
                   let props: any = {};
                   try { props = JSON.parse(asset.properties); } catch(e) {}
                   
-                  // Extract core fields (Name and Serial) to display prominently in the first column
                   const name = props['name'] || props['Name'] || 'Asset';
-                  const serial = props['serial no'] || props['Serial No'] || props['Serial'] || '-';
+                  const serial = props['serial no'] || props['Serial No'] || props['Serial'] || props['serial'] || '-';
                   
-                  // Filter out Name and Serial from the "Specifications" list to avoid duplication
-                  // Also filter out empty values to keep the UI clean
                   const specString = Object.entries(props)
                     .filter(([key, val]) => {
                       const k = key.toLowerCase();
-                      return k !== 'name' && k !== 'serial no' && k !== 'serial' && val !== '';
+                      return k !== 'name' && k !== 'serial no' && k !== 'serial' && k !== 'po_ref' && val !== '';
                     })
                     .map(([k, v]) => `<span class="font-semibold text-gray-600">${k}:</span> ${v}`)
                     .join(' • ');
 
-                  // Safe access for potentially deeply nested values
                   const categoryName = asset.subCategory?.category?.name || 'Unknown';
                   const subCategoryName = asset.subCategory?.name || 'General';
 
@@ -199,18 +252,22 @@ export default function Inventory() {
                     <tr key={asset.id} className="hover:bg-gray-50 transition-colors">
                       <td className="px-6 py-4">
                         <div className="text-sm font-bold text-gray-900">{name}</div>
-                        <div className="text-xs text-gray-500 mt-0.5">SN: {serial}</div>
+                        <div className="text-xs text-gray-500 mt-0.5 font-mono">SN: {serial}</div>
                       </td>
                       <td className="px-6 py-4 text-sm text-gray-500">
                          <div className="font-medium text-gray-700">{categoryName}</div>
                          <div className="text-xs text-gray-400">{subCategoryName}</div>
                       </td>
                       <td className="px-6 py-4 text-xs text-gray-600">
-                        {/* Render the filtered specs. If none remain, show "No specs" */}
                         <div dangerouslySetInnerHTML={{ __html: specString || '<span class="italic text-gray-400">No specs</span>' }} />
                       </td>
                       <td className="px-6 py-4">
-                          <span className="px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800">
+                          <span className={cn(
+                            "px-2 py-1 text-xs font-semibold rounded-full",
+                            asset.status === 'ACTIVE' ? "bg-green-100 text-green-800" :
+                            asset.status === 'RETIRED' ? "bg-red-100 text-red-800" :
+                            "bg-gray-100 text-gray-800"
+                          )}>
                               {asset.status}
                           </span>
                       </td>

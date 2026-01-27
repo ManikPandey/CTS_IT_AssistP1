@@ -15,6 +15,8 @@ electron_1.contextBridge.exposeInMainWorld('api', {
     createPurchaseOrder: (data) => electron_1.ipcRenderer.invoke('purchase:create', data),
     deletePurchaseOrder: (id) => electron_1.ipcRenderer.invoke('purchase:delete', id),
     getPurchaseOrder: (id) => electron_1.ipcRenderer.invoke('purchase:get-one', id),
-    // NEW: Receive Items
     receiveItems: (data) => electron_1.ipcRenderer.invoke('purchase:receive-items', data),
+    // NEW: System & Settings
+    getAuditLogs: () => electron_1.ipcRenderer.invoke('system:get-audit-logs'),
+    backupDatabase: () => electron_1.ipcRenderer.invoke('system:backup'),
 });
