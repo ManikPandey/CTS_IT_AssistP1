@@ -10,7 +10,6 @@ const excel_1 = require("./services/excel");
 const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
 // --- HELPER: Audit Logging ---
-// We use this internal function to record actions without code duplication
 async function logAction(action, entityType, entityId, details) {
     try {
         await db_1.prisma.auditLog.create({
@@ -68,7 +67,6 @@ function registerHandlers() {
         try {
             const slug = data.name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
             const category = await db_1.prisma.category.create({ data: { ...data, slug } });
-            // LOG IT
             await logAction('CREATE', 'CATEGORY', category.id, `Created category: ${data.name}`);
             return { success: true, data: category };
         }
@@ -76,17 +74,53 @@ function registerHandlers() {
             return { success: false, error: "Failed to create category." };
         }
     });
+    // NEW: Create Sub-Category
+    electron_1.ipcMain.handle('inventory:create-subcategory', async (_, { categoryId, name }) => {
+        try {
+            const category = await db_1.prisma.category.findUnique({ where: { id: categoryId } });
+            if (!category)
+                return { success: false, error: "Category not found" };
+            const slug = (category.slug + '-' + name).toLowerCase().replace(/[^a-z0-9]+/g, '-');
+            const subCategory = await db_1.prisma.subCategory.create({
+                data: { name, slug, categoryId }
+            });
+            await logAction('CREATE', 'SUBCATEGORY', subCategory.id, `Created sub-category: ${name} in ${category.name}`);
+            return { success: true, data: subCategory };
+        }
+        catch (error) {
+            console.error(error);
+            return { success: false, error: "Failed to create sub-category: " + error.message };
+        }
+    });
     electron_1.ipcMain.handle('inventory:update-category', async (_, { id, data }) => {
         try {
             if (data.name)
                 data.slug = data.name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
             const category = await db_1.prisma.category.update({ where: { id }, data });
-            // LOG IT
             await logAction('UPDATE', 'CATEGORY', id, `Updated category: ${category.name}`);
             return { success: true, data: category };
         }
         catch (error) {
             return { success: false, error: "Failed to update category" };
+        }
+    });
+    // NEW: Update Asset
+    electron_1.ipcMain.handle('inventory:update-asset', async (_, { id, status, properties }) => {
+        try {
+            const asset = await db_1.prisma.asset.update({
+                where: { id },
+                data: {
+                    status,
+                    properties: JSON.stringify(properties) // Store as JSON string
+                }
+            });
+            // Try to get a name for the log
+            const name = properties['name'] || properties['Name'] || id;
+            await logAction('UPDATE', 'ASSET', id, `Updated asset: ${name} (${status})`);
+            return { success: true, data: asset };
+        }
+        catch (error) {
+            return { success: false, error: "Failed to update asset: " + error.message };
         }
     });
     electron_1.ipcMain.handle('inventory:import-excel', async () => {
@@ -98,8 +132,7 @@ function registerHandlers() {
             return { success: false, error: "No file selected" };
         try {
             const importResult = await (0, excel_1.importExcelData)(result.filePaths[0]);
-            // LOG IT
-            await logAction('IMPORT', 'SYSTEM', null, `Imported Excel. Success: ${importResult.report?.success}, Errors: ${importResult.report?.errors.length}`);
+            await logAction('IMPORT', 'SYSTEM', null, `Imported Excel. Success: ${importResult.report?.success}`);
             return importResult;
         }
         catch (error) {
@@ -116,7 +149,6 @@ function registerHandlers() {
             return { success: false, error: "Export cancelled" };
         try {
             await (0, excel_1.exportExcelData)(result.filePath);
-            // LOG IT
             await logAction('EXPORT', 'SYSTEM', null, `Exported inventory to ${path_1.default.basename(result.filePath)}`);
             return { success: true, filePath: result.filePath };
         }
@@ -159,7 +191,6 @@ function registerHandlers() {
                     }
                 }
             });
-            // LOG IT
             await logAction('CREATE', 'PO', newPO.id, `Created PO ${newPO.poNumber} for ${vendorName}`);
             return { success: true, data: newPO };
         }
@@ -171,7 +202,6 @@ function registerHandlers() {
         try {
             const po = await db_1.prisma.purchaseOrder.findUnique({ where: { id } });
             await db_1.prisma.purchaseOrder.delete({ where: { id } });
-            // LOG IT
             await logAction('DELETE', 'PO', id, `Deleted PO ${po?.poNumber}`);
             return { success: true };
         }
@@ -196,15 +226,12 @@ function registerHandlers() {
             await db_1.prisma.$transaction(async (tx) => {
                 let itemsReceivedCount = 0;
                 for (const item of payload.items) {
-                    // Update Received Qty
                     await tx.lineItem.update({
                         where: { id: item.lineItemId },
                         data: { receivedQty: { increment: item.quantity } }
                     });
-                    // Fetch info for asset name
                     const lineItem = await tx.lineItem.findUnique({ where: { id: item.lineItemId } });
                     const productName = lineItem?.productName || "Received Asset";
-                    // Create Assets
                     for (const serial of item.serials) {
                         const properties = JSON.stringify({ name: productName, serial: serial, "po_ref": payload.poId });
                         await tx.asset.create({
@@ -218,16 +245,11 @@ function registerHandlers() {
                         itemsReceivedCount++;
                     }
                 }
-                // Update PO Status
-                const po = await tx.purchaseOrder.findUnique({
-                    where: { id: payload.poId },
-                    include: { lineItems: true }
-                });
+                const po = await tx.purchaseOrder.findUnique({ where: { id: payload.poId }, include: { lineItems: true } });
                 if (po) {
                     const allReceived = po.lineItems.every((li) => li.receivedQty >= li.quantity);
                     const newStatus = allReceived ? "COMPLETED" : "PARTIAL";
                     await tx.purchaseOrder.update({ where: { id: payload.poId }, data: { status: newStatus } });
-                    // LOG IT
                     await logAction('RECEIVE', 'PO', payload.poId, `Received ${itemsReceivedCount} items for PO ${po.poNumber}. Status: ${newStatus}`);
                 }
             });
@@ -238,13 +260,12 @@ function registerHandlers() {
             return { success: false, error: "Failed to receive items: " + error.message };
         }
     });
-    // --- SYSTEM & SETTINGS (NEW) ---
-    // 13. GET Audit Logs
+    // --- SYSTEM & SETTINGS ---
     electron_1.ipcMain.handle('system:get-audit-logs', async () => {
         try {
             const logs = await db_1.prisma.auditLog.findMany({
                 orderBy: { timestamp: 'desc' },
-                take: 200 // Last 200 actions
+                take: 200
             });
             return { success: true, data: logs };
         }
@@ -252,7 +273,6 @@ function registerHandlers() {
             return { success: false, error: "Failed to fetch logs" };
         }
     });
-    // 14. BACKUP DATABASE
     electron_1.ipcMain.handle('system:backup', async () => {
         const result = await electron_1.dialog.showSaveDialog({
             title: 'Backup Database',

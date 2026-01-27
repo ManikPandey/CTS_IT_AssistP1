@@ -7,6 +7,11 @@ contextBridge.exposeInMainWorld('api', {
   getAssets: (categoryId?: string) => ipcRenderer.invoke('inventory:get-assets', categoryId),
   createCategory: (data: any) => ipcRenderer.invoke('inventory:create-category', data),
   updateCategory: (id: string, data: any) => ipcRenderer.invoke('inventory:update-category', { id, data }),
+  
+  // NEW FUNCTIONS (Sub-Categories & Assets)
+  createSubCategory: (data: any) => ipcRenderer.invoke('inventory:create-subcategory', data),
+  updateAsset: (id: string, data: any) => ipcRenderer.invoke('inventory:update-asset', { id, ...data }),
+
   importExcel: () => ipcRenderer.invoke('inventory:import-excel'),
   exportExcel: () => ipcRenderer.invoke('inventory:export-excel'),
 
@@ -17,7 +22,7 @@ contextBridge.exposeInMainWorld('api', {
   getPurchaseOrder: (id: string) => ipcRenderer.invoke('purchase:get-one', id),
   receiveItems: (data: any) => ipcRenderer.invoke('purchase:receive-items', data),
 
-  // NEW: System & Settings
+  // System
   getAuditLogs: () => ipcRenderer.invoke('system:get-audit-logs'),
   backupDatabase: () => ipcRenderer.invoke('system:backup'),
 });

@@ -1,8 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { BarChart3, Package, FileText, ArrowUpRight } from 'lucide-react';
+import { BarChart3, Package, FileText, ArrowUpRight, Plus, Upload } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 
 export default function Dashboard() {
   const [stats, setStats] = useState<any>(null);
+  const navigate = useNavigate();
 
   useEffect(() => {
     async function load() {
@@ -39,17 +41,39 @@ export default function Dashboard() {
         ))}
       </div>
 
-      {/* Placeholder for Recent Activity */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 min-h-[300px]">
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
         <h3 className="font-semibold text-gray-900 mb-4">Quick Actions</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <button className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50 group">
-                <span className="font-medium text-gray-700">Import New Assets</span>
-                <ArrowUpRight className="w-4 h-4 text-gray-400 group-hover:text-indigo-600" />
+            <button 
+                onClick={() => navigate('/inventory')} 
+                className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50 group transition-all"
+            >
+                <div className="flex items-center gap-3">
+                    <div className="p-2 bg-blue-100 text-blue-600 rounded-lg">
+                        <Upload size={20} />
+                    </div>
+                    <div className="text-left">
+                        <span className="block font-medium text-gray-700">Import/Manage Assets</span>
+                        <span className="text-xs text-gray-500">Go to Inventory</span>
+                    </div>
+                </div>
+                <ArrowUpRight className="w-4 h-4 text-gray-400 group-hover:text-blue-600" />
             </button>
-            <button className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50 group">
-                <span className="font-medium text-gray-700">Create Purchase Order</span>
-                <ArrowUpRight className="w-4 h-4 text-gray-400 group-hover:text-indigo-600" />
+
+            <button 
+                onClick={() => navigate('/purchase-orders')} 
+                className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50 group transition-all"
+            >
+                <div className="flex items-center gap-3">
+                    <div className="p-2 bg-purple-100 text-purple-600 rounded-lg">
+                        <Plus size={20} />
+                    </div>
+                    <div className="text-left">
+                        <span className="block font-medium text-gray-700">Create Purchase Order</span>
+                        <span className="text-xs text-gray-500">Go to Procurement</span>
+                    </div>
+                </div>
+                <ArrowUpRight className="w-4 h-4 text-gray-400 group-hover:text-purple-600" />
             </button>
         </div>
       </div>
