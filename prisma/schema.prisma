@@ -11,7 +11,21 @@ datasource db {
 }
 
 // ==========================================
-// 1. INVENTORY MANAGEMENT SYSTEM
+// 1. AUTHENTICATION & USERS (NEW)
+// ==========================================
+
+model User {
+  id        String   @id @default(cuid())
+  username  String   @unique
+  password  String   // In production, this should be hashed!
+  name      String
+  role      String   // "ADMIN" | "USER"
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ==========================================
+// 2. INVENTORY MANAGEMENT SYSTEM
 // ==========================================
 
 model Category {
@@ -66,7 +80,7 @@ model Asset {
 }
 
 // ==========================================
-// 2. MAINTENANCE & ISSUES
+// 3. MAINTENANCE & ISSUES
 // ==========================================
 
 model MaintenanceRecord {
@@ -87,7 +101,7 @@ model MaintenanceRecord {
 }
 
 // ==========================================
-// 3. PROCUREMENT / PURCHASE ORDERS (PO)
+// 4. PROCUREMENT / PURCHASE ORDERS (PO)
 // ==========================================
 
 model Vendor {
@@ -111,7 +125,7 @@ model PurchaseOrder {
   vendorId        String?
   vendor          Vendor?  @relation(fields: [vendorId], references: [id])
   vendorNameSnap  String?  // Snapshot of vendor name (history protection)
-  gstin           String?  // Vendor GSTIN
+  gstin           String?  // Vendor GSTIN (Critical for validation fix)
   
   // Addresses
   billingAddress  String?
@@ -164,13 +178,13 @@ model LineItem {
 }
 
 // ==========================================
-// 4. SYSTEM & AUDIT
+// 5. SYSTEM & AUDIT
 // ==========================================
 
 model AuditLog {
   id          String   @id @default(cuid())
-  action      String   // CREATE, UPDATE, DELETE, IMPORT, EXPORT
-  entityType  String   // ASSET, PO, SYSTEM
+  action      String   // CREATE, UPDATE, DELETE, IMPORT, EXPORT, LOGIN, BACKUP
+  entityType  String   // ASSET, PO, SYSTEM, USER, CATEGORY
   entityId    String?
   details     String?  // Description of what changed
   timestamp   DateTime @default(now())

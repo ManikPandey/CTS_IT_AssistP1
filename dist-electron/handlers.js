@@ -10,6 +10,11 @@ const excel_1 = require("./services/excel");
 const pdf_1 = require("./services/pdf");
 const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
+const crypto_1 = __importDefault(require("crypto"));
+// --- HELPER: Password Hashing ---
+function hashPassword(password) {
+    return crypto_1.default.createHash('sha256').update(password).digest('hex');
+}
 // --- HELPER: Audit Logging ---
 // Records actions to the database. Accepts optional 'tx' to log inside a transaction safely.
 async function logAction(action, entityType, entityId, details, tx) {
@@ -25,9 +30,81 @@ async function logAction(action, entityType, entityId, details, tx) {
 }
 function registerHandlers() {
     // ==========================================
-    // 1. DASHBOARD HANDLERS
+    // 1. AUTHENTICATION HANDLERS
     // ==========================================
-    // [1] Get Dashboard Statistics
+    // Check if any user exists (to trigger First Run setup)
+    electron_1.ipcMain.handle('auth:check-init', async () => {
+        const count = await db_1.prisma.user.count();
+        return { initialized: count > 0 };
+    });
+    // Login
+    electron_1.ipcMain.handle('auth:login', async (_, { username, password }) => {
+        try {
+            const user = await db_1.prisma.user.findUnique({ where: { username } });
+            if (!user)
+                return { success: false, error: "User not found" };
+            const hashed = hashPassword(password);
+            if (user.password !== hashed)
+                return { success: false, error: "Invalid password" };
+            await logAction('LOGIN', 'USER', user.id, `User ${user.username} logged in`);
+            return {
+                success: true,
+                user: { id: user.id, username: user.username, name: user.name, role: user.role }
+            };
+        }
+        catch (e) {
+            return { success: false, error: e.message };
+        }
+    });
+    // Register / Create User
+    electron_1.ipcMain.handle('auth:register', async (_, data) => {
+        try {
+            const existing = await db_1.prisma.user.findUnique({ where: { username: data.username } });
+            if (existing)
+                return { success: false, error: "Username already exists" };
+            const user = await db_1.prisma.user.create({
+                data: {
+                    username: data.username,
+                    password: hashPassword(data.password),
+                    name: data.name,
+                    role: data.role || 'USER'
+                }
+            });
+            await logAction('CREATE', 'USER', user.id, `Created user ${user.username} as ${user.role}`);
+            return { success: true, user: { id: user.id, username: user.username, name: user.name, role: user.role } };
+        }
+        catch (e) {
+            return { success: false, error: e.message };
+        }
+    });
+    // Get Users List (For Admin Settings)
+    electron_1.ipcMain.handle('auth:get-users', async () => {
+        try {
+            const users = await db_1.prisma.user.findMany({
+                select: { id: true, username: true, name: true, role: true, createdAt: true }
+            });
+            return { success: true, data: users };
+        }
+        catch (error) {
+            return { success: false, error: "Failed to fetch users" };
+        }
+    });
+    electron_1.ipcMain.handle('auth:change-password', async (_, { userId, newPassword }) => {
+        try {
+            await db_1.prisma.user.update({
+                where: { id: userId },
+                data: { password: hashPassword(newPassword) }
+            });
+            await logAction('UPDATE', 'USER', userId, `Password reset for user ID ${userId}`);
+            return { success: true };
+        }
+        catch (error) {
+            return { success: false, error: error.message };
+        }
+    });
+    // ==========================================
+    // 2. DASHBOARD HANDLERS
+    // ==========================================
     electron_1.ipcMain.handle('dashboard:get-stats', async () => {
         try {
             // Basic Counts
@@ -71,9 +148,8 @@ function registerHandlers() {
         }
     });
     // ==========================================
-    // 2. INVENTORY HANDLERS (Categories/Assets)
+    // 3. INVENTORY HANDLERS
     // ==========================================
-    // [2] Get Categories Tree
     electron_1.ipcMain.handle('inventory:get-categories', async () => {
         try {
             const categories = await db_1.prisma.category.findMany({
@@ -86,7 +162,6 @@ function registerHandlers() {
             return { success: false, error: "Failed to fetch categories" };
         }
     });
-    // [3] Get Assets (Filtered)
     electron_1.ipcMain.handle('inventory:get-assets', async (_, categoryId) => {
         try {
             const whereClause = categoryId ? { subCategory: { categoryId: categoryId } } : {};
@@ -94,7 +169,7 @@ function registerHandlers() {
                 where: whereClause,
                 include: { subCategory: { include: { category: true } } },
                 orderBy: { updatedAt: 'desc' },
-                take: 100 // Limit for performance
+                take: 100
             });
             return { success: true, data: assets };
         }
@@ -102,7 +177,6 @@ function registerHandlers() {
             return { success: false, error: "Failed to fetch assets" };
         }
     });
-    // [4] Create Category
     electron_1.ipcMain.handle('inventory:create-category', async (_, data) => {
         try {
             const slug = data.name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
@@ -114,7 +188,6 @@ function registerHandlers() {
             return { success: false, error: "Failed to create category." };
         }
     });
-    // [5] Update Category
     electron_1.ipcMain.handle('inventory:update-category', async (_, { id, data }) => {
         try {
             if (data.name)
@@ -127,7 +200,6 @@ function registerHandlers() {
             return { success: false, error: "Failed to update category" };
         }
     });
-    // [6] Create Sub-Category
     electron_1.ipcMain.handle('inventory:create-subcategory', async (_, { categoryId, name }) => {
         try {
             const category = await db_1.prisma.category.findUnique({ where: { id: categoryId } });
@@ -144,7 +216,6 @@ function registerHandlers() {
             return { success: false, error: "Failed to create sub-category: " + error.message };
         }
     });
-    // [7] Update Sub-Category (Renaming or Field Definitions)
     electron_1.ipcMain.handle('inventory:update-subcategory', async (_, { id, data }) => {
         try {
             if (data.fieldDefinitions && typeof data.fieldDefinitions !== 'string') {
@@ -158,7 +229,6 @@ function registerHandlers() {
             return { success: false, error: "Failed to update sub-category: " + error.message };
         }
     });
-    // [8] Create Asset
     electron_1.ipcMain.handle('inventory:create-asset', async (_, { subCategoryId, status, properties }) => {
         try {
             const asset = await db_1.prisma.asset.create({
@@ -176,7 +246,6 @@ function registerHandlers() {
             return { success: false, error: "Failed to create asset: " + error.message };
         }
     });
-    // [9] Update Asset
     electron_1.ipcMain.handle('inventory:update-asset', async (_, { id, status, properties }) => {
         try {
             const asset = await db_1.prisma.asset.update({
@@ -194,7 +263,6 @@ function registerHandlers() {
             return { success: false, error: "Failed to update asset: " + error.message };
         }
     });
-    // [10] Import Inventory Excel
     electron_1.ipcMain.handle('inventory:import-excel', async () => {
         const result = await electron_1.dialog.showOpenDialog({
             properties: ['openFile'],
@@ -211,7 +279,6 @@ function registerHandlers() {
             return { success: false, error: error.message };
         }
     });
-    // [11] Export Inventory Excel
     electron_1.ipcMain.handle('inventory:export-excel', async () => {
         const result = await electron_1.dialog.showSaveDialog({
             title: 'Export Inventory Report',
@@ -230,9 +297,8 @@ function registerHandlers() {
         }
     });
     // ==========================================
-    // 3. PURCHASE ORDER HANDLERS
+    // 4. PURCHASE ORDER HANDLERS
     // ==========================================
-    // [12] Get All POs
     electron_1.ipcMain.handle('purchase:get-all', async () => {
         try {
             const pos = await db_1.prisma.purchaseOrder.findMany({
@@ -245,16 +311,14 @@ function registerHandlers() {
             return { success: false, error: "Failed to fetch POs" };
         }
     });
-    // [13] Create PO
     electron_1.ipcMain.handle('purchase:create', async (_, poData) => {
         try {
-            // Destructure to handle fields
             const { lineItems, vendorName, gstin, ...header } = poData;
             const newPO = await db_1.prisma.purchaseOrder.create({
                 data: {
                     ...header,
-                    vendorNameSnap: vendorName, // Map UI field to DB field
-                    gstin: gstin, // Map UI field to DB field
+                    vendorNameSnap: vendorName,
+                    gstin: gstin,
                     date: new Date(header.date),
                     lineItems: {
                         create: lineItems.map((item) => ({
@@ -277,7 +341,6 @@ function registerHandlers() {
             return { success: false, error: "Failed to create PO: " + error.message };
         }
     });
-    // [14] Delete PO
     electron_1.ipcMain.handle('purchase:delete', async (_, id) => {
         try {
             const po = await db_1.prisma.purchaseOrder.findUnique({ where: { id } });
@@ -289,7 +352,6 @@ function registerHandlers() {
             return { success: false, error: "Failed to delete PO" };
         }
     });
-    // [15] Get Single PO
     electron_1.ipcMain.handle('purchase:get-one', async (_, id) => {
         try {
             const po = await db_1.prisma.purchaseOrder.findUnique({
@@ -302,26 +364,24 @@ function registerHandlers() {
             return { success: false, error: "PO not found" };
         }
     });
-    // [16] Receive Items (GRN) - BULK INSERT LOGIC
     electron_1.ipcMain.handle('purchase:receive-items', async (_, payload) => {
         try {
-            // 20 Second timeout for large batches
+            // Set Timeout to 20 seconds for large batches
             await db_1.prisma.$transaction(async (tx) => {
                 let itemsReceivedCount = 0;
                 for (const item of payload.items) {
-                    // Validation
                     if (!item.subCategoryId || item.subCategoryId === '') {
                         throw new Error(`Sub-Category selection is missing for item (Line ID: ${item.lineItemId}).`);
                     }
-                    // A. Update Received Qty in PO Line Item
+                    // A. Update Received Qty
                     await tx.lineItem.update({
                         where: { id: item.lineItemId },
                         data: { receivedQty: { increment: item.quantity } }
                     });
-                    // B. Fetch Line Item details for Asset Name
+                    // B. Fetch Line Item details
                     const lineItem = await tx.lineItem.findUnique({ where: { id: item.lineItemId } });
                     const productName = lineItem?.productName || "Received Asset";
-                    // C. Prepare Bulk Data for Asset Creation
+                    // C. Prepare Bulk Data
                     const assetsData = item.serials.map(serial => {
                         const propertiesObj = {
                             Name: productName,
@@ -335,11 +395,9 @@ function registerHandlers() {
                             purchaseOrderId: payload.poId
                         };
                     });
-                    // D. Bulk Insert (Performance Optimization)
+                    // D. Bulk Insert
                     if (assetsData.length > 0) {
-                        await tx.asset.createMany({
-                            data: assetsData
-                        });
+                        await tx.asset.createMany({ data: assetsData });
                         itemsReceivedCount += assetsData.length;
                     }
                 }
@@ -352,7 +410,7 @@ function registerHandlers() {
                     const allReceived = po.lineItems.every((li) => li.receivedQty >= li.quantity);
                     const newStatus = allReceived ? "COMPLETED" : "PARTIAL";
                     await tx.purchaseOrder.update({ where: { id: payload.poId }, data: { status: newStatus } });
-                    // Use 'tx' for logging to avoid deadlock/socket timeout
+                    // Pass 'tx' to logAction to avoid deadlock
                     await logAction('RECEIVE', 'PO', payload.poId, `Received ${itemsReceivedCount} items. Status: ${newStatus}`, tx);
                 }
             }, {
@@ -365,7 +423,6 @@ function registerHandlers() {
             return { success: false, error: "Failed to receive items: " + error.message };
         }
     });
-    // [17] Import POs from Excel
     electron_1.ipcMain.handle('purchase:import', async () => {
         const result = await electron_1.dialog.showOpenDialog({
             properties: ['openFile'],
@@ -382,7 +439,6 @@ function registerHandlers() {
             return { success: false, error: error.message };
         }
     });
-    // [18] Parse PDF PO
     electron_1.ipcMain.handle('purchase:parse-pdf', async () => {
         const result = await electron_1.dialog.showOpenDialog({
             properties: ['openFile'],
@@ -399,9 +455,9 @@ function registerHandlers() {
         }
     });
     // ==========================================
-    // 4. MAINTENANCE HANDLERS
+    // 5. MAINTENANCE HANDLERS
     // ==========================================
-    // [19] Create Maintenance Record
+    // Create Maintenance Record
     electron_1.ipcMain.handle('maintenance:create', async (_, data) => {
         try {
             const record = await db_1.prisma.maintenanceRecord.create({
@@ -423,7 +479,7 @@ function registerHandlers() {
             return { success: false, error: e.message };
         }
     });
-    // [20] Get All Maintenance Records
+    // Get All Records
     electron_1.ipcMain.handle('maintenance:get-all', async () => {
         try {
             const records = await db_1.prisma.maintenanceRecord.findMany({
@@ -436,7 +492,7 @@ function registerHandlers() {
             return { success: false, error: "Failed to fetch maintenance records" };
         }
     });
-    // [21] Resolve Maintenance Record
+    // Resolve Record
     electron_1.ipcMain.handle('maintenance:resolve', async (_, { id, cost }) => {
         try {
             const record = await db_1.prisma.maintenanceRecord.update({
@@ -453,9 +509,8 @@ function registerHandlers() {
         }
     });
     // ==========================================
-    // 5. SYSTEM HANDLERS
+    // 6. SYSTEM HANDLERS
     // ==========================================
-    // [22] Get Audit Logs
     electron_1.ipcMain.handle('system:get-audit-logs', async () => {
         try {
             const logs = await db_1.prisma.auditLog.findMany({
@@ -468,7 +523,6 @@ function registerHandlers() {
             return { success: false, error: "Failed to fetch logs" };
         }
     });
-    // [23] Backup Database
     electron_1.ipcMain.handle('system:backup', async () => {
         const result = await electron_1.dialog.showSaveDialog({
             title: 'Backup Database',
