@@ -9,8 +9,10 @@ interface Window {
     createCategory: (data: { name: string, description?: string }) => Promise<{ success: boolean; data?: any; error?: string }>;
     updateCategory: (id: string, data: any) => Promise<{ success: boolean; data?: any; error?: string }>;
     
-    // NEW TYPES (Sub-Categories & Assets)
     createSubCategory: (data: { categoryId: string, name: string }) => Promise<{ success: boolean; data?: any; error?: string }>;
+    updateSubCategory: (id: string, data: any) => Promise<{ success: boolean; data?: any; error?: string }>;
+    
+    createAsset: (data: { subCategoryId: string, status: string, properties: any }) => Promise<{ success: boolean; data?: any; error?: string }>;
     updateAsset: (id: string, data: { status: string, properties: any }) => Promise<{ success: boolean; data?: any; error?: string }>;
 
     importExcel: () => Promise<{ success: boolean; report?: any; error?: string }>;
@@ -22,6 +24,10 @@ interface Window {
     deletePurchaseOrder: (id: string) => Promise<{ success: boolean; error?: string }>;
     getPurchaseOrder: (id: string) => Promise<{ success: boolean; data?: any; error?: string }>;
     receiveItems: (data: any) => Promise<{ success: boolean; error?: string }>;
+    importPurchaseOrders: () => Promise<{ success: boolean; count?: number; error?: string }>;
+    
+    // NEW: PDF Import
+    parsePurchaseOrderPDF: () => Promise<{ success: boolean; data?: any; error?: string }>;
 
     // System
     getAuditLogs: () => Promise<{ success: boolean; data: any[]; error?: string }>;

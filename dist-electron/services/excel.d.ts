@@ -14,3 +14,12 @@ export declare function importExcelData(filePath: string): Promise<{
 export declare function exportExcelData(filePath: string): Promise<{
     success: boolean;
 }>;
+export declare function importPurchaseOrders(filePath: string): Promise<{
+    success: boolean;
+    error: string;
+    count?: undefined;
+} | {
+    success: boolean;
+    count: number;
+    error?: undefined;
+}>;

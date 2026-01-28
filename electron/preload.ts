@@ -8,8 +8,10 @@ contextBridge.exposeInMainWorld('api', {
   createCategory: (data: any) => ipcRenderer.invoke('inventory:create-category', data),
   updateCategory: (id: string, data: any) => ipcRenderer.invoke('inventory:update-category', { id, data }),
   
-  // NEW FUNCTIONS (Sub-Categories & Assets)
   createSubCategory: (data: any) => ipcRenderer.invoke('inventory:create-subcategory', data),
+  updateSubCategory: (id: string, data: any) => ipcRenderer.invoke('inventory:update-subcategory', { id, data }),
+  
+  createAsset: (data: any) => ipcRenderer.invoke('inventory:create-asset', data),
   updateAsset: (id: string, data: any) => ipcRenderer.invoke('inventory:update-asset', { id, ...data }),
 
   importExcel: () => ipcRenderer.invoke('inventory:import-excel'),
@@ -21,6 +23,10 @@ contextBridge.exposeInMainWorld('api', {
   deletePurchaseOrder: (id: string) => ipcRenderer.invoke('purchase:delete', id),
   getPurchaseOrder: (id: string) => ipcRenderer.invoke('purchase:get-one', id),
   receiveItems: (data: any) => ipcRenderer.invoke('purchase:receive-items', data),
+  importPurchaseOrders: () => ipcRenderer.invoke('purchase:import'),
+  
+  // NEW: PDF IMPORT
+  parsePurchaseOrderPDF: () => ipcRenderer.invoke('purchase:parse-pdf'),
 
   // System
   getAuditLogs: () => ipcRenderer.invoke('system:get-audit-logs'),

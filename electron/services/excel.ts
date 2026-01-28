@@ -125,7 +125,8 @@ export async function exportExcelData(filePath: string) {
   workbook.created = new Date();
 
   // 1. Fetch ALL Data
-  const assets = await prisma.asset.findMany({
+  // Explicitly type asset as any to resolve implicit any error
+  const assets: any[] = await prisma.asset.findMany({
     include: { subCategory: { include: { category: true } } }
   });
 
@@ -147,7 +148,6 @@ export async function exportExcelData(filePath: string) {
   const categoryCounts: Record<string, number> = {};
   const statusCounts: Record<string, number> = {};
 
-  // Explicitly type asset as any to resolve implicit any error
   assets.forEach((asset: any) => {
     const cat = asset.subCategory?.category?.name || 'Unknown';
     categoryCounts[cat] = (categoryCounts[cat] || 0) + 1;
@@ -189,7 +189,6 @@ export async function exportExcelData(filePath: string) {
   
   // Identify all dynamic keys across all assets
   const dynamicKeys = new Set<string>();
-  // Explicitly type asset as any to resolve implicit any error
   assets.forEach((asset: any) => {
     try {
       const props = JSON.parse(asset.properties);
@@ -225,7 +224,6 @@ export async function exportExcelData(filePath: string) {
   dataSheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF475569' } }; // Slate 600
 
   // Add Rows
-  // Explicitly type asset as any to resolve implicit any error
   assets.forEach((asset: any) => {
     let props = {};
     try { props = JSON.parse(asset.properties); } catch(e) {}
@@ -249,4 +247,99 @@ export async function exportExcelData(filePath: string) {
 
   await workbook.xlsx.writeFile(filePath);
   return { success: true };
+}
+
+// --- NEW: IMPORT PURCHASE ORDERS ---
+export async function importPurchaseOrders(filePath: string) {
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.readFile(filePath);
+  const worksheet = workbook.getWorksheet(1);
+  if (!worksheet) return { success: false, error: "Excel file empty" };
+
+  // 1. Map Headers
+  const headers: string[] = [];
+  worksheet.getRow(1).eachCell((cell, col) => {
+    headers[col] = cell.text?.toString().trim().toLowerCase() || '';
+  });
+
+  // Required: PO Number, Date, Vendor, Product, Qty, Price
+  const poIdx = headers.indexOf('po number');
+  const dateIdx = headers.indexOf('date');
+  const vendorIdx = headers.indexOf('vendor');
+  const prodIdx = headers.indexOf('product');
+  const qtyIdx = headers.indexOf('qty');
+  const priceIdx = headers.indexOf('price');
+
+  if (poIdx === -1 || vendorIdx === -1 || prodIdx === -1) {
+    return { success: false, error: "Missing columns: 'PO Number', 'Vendor', 'Product' are required." };
+  }
+
+  // 2. Group Rows by PO Number
+  const groupedPOs: Record<string, any> = {};
+  const rows = worksheet.getRows(2, worksheet.rowCount) || [];
+
+  for (const row of rows) {
+    if (!row.hasValues) continue;
+    
+    const poNumber = row.getCell(poIdx).text?.toString().trim();
+    if (!poNumber) continue;
+
+    if (!groupedPOs[poNumber]) {
+      // Create PO Header
+      groupedPOs[poNumber] = {
+        poNumber,
+        date: row.getCell(dateIdx).value ? new Date(row.getCell(dateIdx).text) : new Date(),
+        vendorNameSnap: row.getCell(vendorIdx).text?.toString().trim(),
+        gstin: headers.indexOf('gstin') !== -1 ? row.getCell(headers.indexOf('gstin')).text : '',
+        status: "ISSUED",
+        lineItems: []
+      };
+    }
+
+    // Add Line Item
+    const qty = parseFloat(row.getCell(qtyIdx).text) || 1;
+    const price = parseFloat(row.getCell(priceIdx).text) || 0;
+    const gst = headers.indexOf('gst') !== -1 ? (parseFloat(row.getCell(headers.indexOf('gst')).text) || 18) : 18;
+    const total = (qty * price) + ((qty * price) * (gst/100));
+
+    groupedPOs[poNumber].lineItems.push({
+      srNo: groupedPOs[poNumber].lineItems.length + 1,
+      productName: row.getCell(prodIdx).text?.toString().trim(),
+      quantity: qty,
+      uom: headers.indexOf('uom') !== -1 ? row.getCell(headers.indexOf('uom')).text : 'Nos',
+      unitPrice: price,
+      gst: gst,
+      totalAmount: total
+    });
+  }
+
+  // 3. Save to DB
+  let createdCount = 0;
+  for (const poKey in groupedPOs) {
+    const poData = groupedPOs[poKey];
+    
+    // Check if PO exists
+    const existing = await prisma.purchaseOrder.findUnique({ where: { poNumber: poData.poNumber } });
+    if (existing) continue; // Skip duplicates
+
+    // Calculate Total
+    const grandTotal = poData.lineItems.reduce((acc: number, item: any) => acc + item.totalAmount, 0);
+
+    await prisma.purchaseOrder.create({
+      data: {
+        poNumber: poData.poNumber,
+        date: poData.date,
+        vendorNameSnap: poData.vendorNameSnap,
+        gstin: poData.gstin,
+        totalAmount: grandTotal,
+        status: "ISSUED",
+        lineItems: {
+          create: poData.lineItems
+        }
+      }
+    });
+    createdCount++;
+  }
+
+  return { success: true, count: createdCount };
 }

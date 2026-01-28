@@ -8,8 +8,9 @@ electron_1.contextBridge.exposeInMainWorld('api', {
     getAssets: (categoryId) => electron_1.ipcRenderer.invoke('inventory:get-assets', categoryId),
     createCategory: (data) => electron_1.ipcRenderer.invoke('inventory:create-category', data),
     updateCategory: (id, data) => electron_1.ipcRenderer.invoke('inventory:update-category', { id, data }),
-    // NEW FUNCTIONS (Sub-Categories & Assets)
     createSubCategory: (data) => electron_1.ipcRenderer.invoke('inventory:create-subcategory', data),
+    updateSubCategory: (id, data) => electron_1.ipcRenderer.invoke('inventory:update-subcategory', { id, data }),
+    createAsset: (data) => electron_1.ipcRenderer.invoke('inventory:create-asset', data),
     updateAsset: (id, data) => electron_1.ipcRenderer.invoke('inventory:update-asset', { id, ...data }),
     importExcel: () => electron_1.ipcRenderer.invoke('inventory:import-excel'),
     exportExcel: () => electron_1.ipcRenderer.invoke('inventory:export-excel'),
@@ -19,6 +20,9 @@ electron_1.contextBridge.exposeInMainWorld('api', {
     deletePurchaseOrder: (id) => electron_1.ipcRenderer.invoke('purchase:delete', id),
     getPurchaseOrder: (id) => electron_1.ipcRenderer.invoke('purchase:get-one', id),
     receiveItems: (data) => electron_1.ipcRenderer.invoke('purchase:receive-items', data),
+    importPurchaseOrders: () => electron_1.ipcRenderer.invoke('purchase:import'),
+    // NEW: PDF IMPORT
+    parsePurchaseOrderPDF: () => electron_1.ipcRenderer.invoke('purchase:parse-pdf'),
     // System
     getAuditLogs: () => electron_1.ipcRenderer.invoke('system:get-audit-logs'),
     backupDatabase: () => electron_1.ipcRenderer.invoke('system:backup'),
