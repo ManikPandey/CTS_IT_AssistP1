@@ -1,14 +1,12 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { Search, Plus, FileSpreadsheet, Edit2, FolderPlus, Upload, ChevronRight, X, Save, Settings2, Trash } from 'lucide-react';
+import { Search, Plus, FileSpreadsheet, Edit2, FolderPlus, Upload, ChevronRight, X, Save, Settings2, Trash, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useUser } from '@/context/UserContext';
 
 // --- INTERNAL COMPONENT: INPUT MODAL ---
-// A reusable modal for creating categories/sub-categories without using window.prompt()
 function InputModal({ isOpen, onClose, title, placeholder, onSubmit }: any) {
   const [value, setValue] = useState('');
   
-  // Reset value when opening
   useEffect(() => {
     if (isOpen) setValue('');
   }, [isOpen]);
@@ -57,16 +55,17 @@ export default function Inventory() {
   // Asset Editing State
   const [editingAsset, setEditingAsset] = useState<any | null>(null);
   const [editForm, setEditForm] = useState<any>({});
-  // New state for inline property addition in Edit Asset Modal
-  const [isAddingProp, setIsAddingProp] = useState(false);
-  const [newPropKey, setNewPropKey] = useState('');
   
   // Attribute Manager State
   const [manageSubCat, setManageSubCat] = useState<any | null>(null);
   const [subCatFields, setSubCatFields] = useState<any[]>([]);
   const [newAttrInput, setNewAttrInput] = useState('');
 
-  // Creation Modal State (Replaces Prompts)
+  // NEW: Report Issue State
+  const [reportingAsset, setReportingAsset] = useState<any | null>(null);
+  const [reportForm, setReportForm] = useState({ issueType: 'Repair', description: '' });
+
+  // Creation Modal State
   const [createModal, setCreateModal] = useState<{ type: 'CAT' | 'SUB' | 'RENAME', data?: any } | null>(null);
 
   // Role Access
@@ -82,17 +81,15 @@ export default function Inventory() {
 
   const loadAssets = async () => {
     setLoading(true);
-    // Fetch assets for the selected category (backend filters by Category ID)
     const res = await window.api.getAssets(selectedCatId || undefined);
     if (res.success) setAssets(res.data);
     setLoading(false);
   };
 
-  // Reload assets when category changes
   useEffect(() => {
     loadAssets();
     setSearchQuery('');
-    setSelectedSubCatId(null); // Reset sub-cat filter
+    setSelectedSubCatId(null); 
   }, [selectedCatId]);
 
 
@@ -136,7 +133,7 @@ export default function Inventory() {
     if (!manageSubCat) return;
     const res = await window.api.updateSubCategory(manageSubCat.id, { fieldDefinitions: JSON.stringify(subCatFields) });
     if (res.success) {
-      loadCategories(); // Reload to save new defs in state
+      loadCategories(); 
       setManageSubCat(null);
     } else {
       alert("Error saving attributes: " + res.error);
@@ -146,8 +143,6 @@ export default function Inventory() {
   const addFieldDefinition = () => {
     if (!newAttrInput.trim()) return;
     const name = newAttrInput.trim();
-    
-    // Prevent duplicates
     if (subCatFields.some(f => f.key === name)) {
         alert("Field already exists!");
         return;
@@ -169,12 +164,9 @@ export default function Inventory() {
       alert("Please select a specific Sub-Category (e.g., Laptops) from the tabs above before adding an asset.");
       return;
     }
-    
-    // 1. Find the sub-category object to get field definitions
     const currentCategory = categories.find(c => c.id === selectedCatId);
     const subCat = currentCategory?.subCategories.find((s: any) => s.id === selectedSubCatId);
 
-    // 2. Initialize props with empty values for defined attributes
     let initialProps: any = {};
     if (subCat && subCat.fieldDefinitions) {
       try {
@@ -182,24 +174,20 @@ export default function Inventory() {
         defs.forEach((d: any) => initialProps[d.key] = "");
       } catch (e) {}
     }
-
-    // 3. Ensure core fields always exist
     if (!initialProps['Name']) initialProps['Name'] = "";
     if (!initialProps['Serial No']) initialProps['Serial No'] = "";
 
-    // 4. Open Modal in "Create Mode"
     setEditingAsset({ 
       isNew: true, 
       status: 'ACTIVE', 
       subCategoryId: selectedSubCatId, 
-      subCategory: subCat, // Pass for modal rendering logic
+      subCategory: subCat, 
       properties: JSON.stringify(initialProps) 
     });
     setEditForm({ 
       status: 'ACTIVE', 
       properties: initialProps 
     });
-    setIsAddingProp(false);
   };
 
   const openEditModal = (asset: any) => {
@@ -207,7 +195,6 @@ export default function Inventory() {
     try { props = JSON.parse(asset.properties); } catch(e) {}
     setEditingAsset(asset);
     setEditForm({ status: asset.status, properties: props });
-    setIsAddingProp(false);
   };
 
   const saveAssetChanges = async () => {
@@ -229,7 +216,7 @@ export default function Inventory() {
 
     if (res.success) {
         setEditingAsset(null);
-        loadAssets(); // Refresh Grid
+        loadAssets(); 
     } else {
         alert("Operation Failed: " + res.error);
     }
@@ -242,12 +229,35 @@ export default function Inventory() {
     }));
   };
 
-  // Replaced prompt with inline state
-  const confirmAddProperty = () => {
-    if (newPropKey.trim()) {
-        handlePropertyChange(newPropKey.trim(), "");
-        setNewPropKey('');
-        setIsAddingProp(false);
+  const handleAddProperty = () => {
+    const key = prompt("Enter new Property Name (e.g., 'Color', 'Warranty Exp'):");
+    if (!key) return;
+    handlePropertyChange(key, "");
+  };
+
+  // --- ACTIONS: REPORT ISSUE ---
+  const openReportModal = (asset: any) => {
+    setReportingAsset(asset);
+    setReportForm({ issueType: 'Repair', description: '' });
+  };
+
+  const submitReport = async () => {
+    if (!reportingAsset) return;
+    if (!reportForm.description) return alert("Please describe the issue");
+
+    const res = await window.api.createMaintenanceRecord({
+        assetId: reportingAsset.id,
+        issueType: reportForm.issueType,
+        description: reportForm.description,
+        cost: 0 // Cost added later in Maintenance View
+    });
+
+    if (res.success) {
+        alert("Issue Reported Successfully! Asset status updated to MAINTENANCE.");
+        setReportingAsset(null);
+        loadAssets(); // Refresh to see status change
+    } else {
+        alert("Error: " + res.error);
     }
   };
 
@@ -279,36 +289,23 @@ export default function Inventory() {
   // --- FILTERING LOGIC ---
   const filteredAssets = useMemo(() => {
     return assets.filter(asset => {
-      // 1. Sub-Category Filter
       if (selectedSubCatId && asset.subCategoryId !== selectedSubCatId) return false;
-
-      // 2. Status Filter
       if (statusFilter && asset.status !== statusFilter) return false;
-
-      // 3. Search Query
       if (!searchQuery) return true;
       const query = searchQuery.toLowerCase();
-      
-      // Static Checks
       if (asset.status.toLowerCase().includes(query)) return true;
       if (asset.subCategory?.name.toLowerCase().includes(query)) return true;
-      
-      // Dynamic Checks (Search inside JSON properties)
       try {
         const props = JSON.parse(asset.properties);
         const values = Object.values(props).join(' ').toLowerCase();
         if (values.includes(query)) return true;
       } catch(e) {}
-
       return false;
     });
   }, [assets, searchQuery, statusFilter, selectedSubCatId]);
 
-  // Derived Data
   const currentCategory = categories.find(c => c.id === selectedCatId);
   const subCategories = currentCategory?.subCategories || [];
-  
-  // Calculate Status Counts
   const statusCounts = useMemo(() => {
     const counts: any = { ALL: assets.length };
     assets.forEach(a => {
@@ -496,7 +493,7 @@ export default function Inventory() {
                 <th className="px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider border-b w-48">Category / Sub</th>
                 <th className="px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider border-b">Properties</th>
                 <th className="px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider border-b w-24">Status</th>
-                {isAdmin && <th className="px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider border-b text-right w-24">Actions</th>}
+                {isAdmin && <th className="px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider border-b text-right w-32">Actions</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
@@ -512,14 +509,12 @@ export default function Inventory() {
                   let props: any = {};
                   try { props = JSON.parse(asset.properties); } catch(e) {}
                   
-                  // Extract core fields
                   const nameKey = Object.keys(props).find(k => k.toLowerCase().includes('name')) || 'Name';
                   const serialKey = Object.keys(props).find(k => k.toLowerCase().includes('serial')) || 'Serial No';
                   
                   const name = props[nameKey] || 'Unnamed Asset';
                   const serial = props[serialKey] || '-';
                   
-                  // Filter specs (exclude redundant info)
                   const specString = Object.entries(props)
                     .filter(([key, val]) => {
                       const k = key.toLowerCase();
@@ -557,9 +552,16 @@ export default function Inventory() {
                       </td>
                       {isAdmin && (
                         <td className="px-6 py-4 text-right text-sm font-medium">
-                          <button onClick={() => openEditModal(asset)} className="text-indigo-600 hover:text-indigo-900 bg-indigo-50 p-1.5 rounded">
-                            <Edit2 size={16} />
-                          </button>
+                          <div className="flex justify-end gap-2">
+                             {/* EDIT BUTTON */}
+                             <button onClick={() => openEditModal(asset)} className="text-indigo-600 hover:text-indigo-900 bg-indigo-50 p-1.5 rounded" title="Edit">
+                               <Edit2 size={16} />
+                             </button>
+                             {/* REPORT ISSUE BUTTON */}
+                             <button onClick={() => openReportModal(asset)} className="text-orange-600 hover:text-orange-900 bg-orange-50 p-1.5 rounded" title="Report Issue">
+                               <AlertTriangle size={16} />
+                             </button>
+                          </div>
                         </td>
                       )}
                     </tr>
@@ -580,7 +582,7 @@ export default function Inventory() {
         onSubmit={handleModalSubmit}
       />
 
-      {/* --- MODAL 2: ASSET EDITING (Dynamic) --- */}
+      {/* --- MODAL 2: ASSET EDITING --- */}
       {editingAsset && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-lg shadow-xl max-w-lg w-full p-6">
@@ -609,29 +611,10 @@ export default function Inventory() {
               <div className="border-t pt-4">
                 <div className="flex justify-between items-center mb-2">
                   <h4 className="text-sm font-bold text-gray-900">Properties</h4>
-                  {/* FIXED: No prompt(). Using inline input state instead. */}
-                  {!isAddingProp && (
-                      <button onClick={() => setIsAddingProp(true)} className="text-xs text-blue-600 hover:underline flex items-center gap-1">
-                        <Plus size={12} /> Add Field
-                      </button>
-                  )}
+                  <button onClick={handleAddProperty} className="text-xs text-blue-600 hover:underline flex items-center gap-1">
+                    <Plus size={12} /> Add Field
+                  </button>
                 </div>
-
-                {/* INLINE PROPERTY ADDER */}
-                {isAddingProp && (
-                    <div className="flex gap-2 mb-3 bg-blue-50 p-2 rounded">
-                        <input 
-                            autoFocus
-                            className="flex-1 p-1 border rounded text-xs focus:ring-1 focus:ring-blue-500 outline-none" 
-                            placeholder="Property Name (e.g. Color)" 
-                            value={newPropKey} 
-                            onChange={e => setNewPropKey(e.target.value)}
-                            onKeyDown={e => e.key === 'Enter' && confirmAddProperty()}
-                        />
-                        <button onClick={confirmAddProperty} className="text-xs bg-blue-600 text-white px-2 py-1 rounded hover:bg-blue-700">Add</button>
-                        <button onClick={() => setIsAddingProp(false)} className="text-xs text-gray-500 hover:text-gray-700"><X size={14}/></button>
-                    </div>
-                )}
                 
                 {/* 1. Defined Attributes */}
                 {editingAsset.subCategory?.fieldDefinitions && JSON.parse(editingAsset.subCategory.fieldDefinitions).map((field: any) => (
@@ -718,6 +701,45 @@ export default function Inventory() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* --- MODAL 4: REPORT ISSUE --- */}
+      {reportingAsset && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+                <h3 className="text-xl font-bold mb-4">Report Issue</h3>
+                <div className="space-y-4">
+                    <div>
+                        <label className="block text-sm font-medium mb-1">Issue Type</label>
+                        <select 
+                            className="w-full p-2 border rounded"
+                            value={reportForm.issueType}
+                            onChange={e => setReportForm({...reportForm, issueType: e.target.value})}
+                        >
+                            <option value="Repair">Repair Needed</option>
+                            <option value="Software">Software Issue</option>
+                            <option value="Upgrade">Upgrade Request</option>
+                            <option value="Breakdown">Complete Breakdown</option>
+                            <option value="Other">Other</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium mb-1">Description</label>
+                        <textarea 
+                            className="w-full p-2 border rounded" 
+                            rows={3}
+                            placeholder="Describe the problem..."
+                            value={reportForm.description}
+                            onChange={e => setReportForm({...reportForm, description: e.target.value})}
+                        />
+                    </div>
+                </div>
+                <div className="flex justify-end gap-3 mt-6 border-t pt-4">
+                    <button onClick={() => setReportingAsset(null)} className="px-4 py-2 border rounded text-gray-700">Cancel</button>
+                    <button onClick={submitReport} className="px-4 py-2 bg-orange-600 text-white rounded hover:bg-orange-700">Submit Report</button>
+                </div>
+            </div>
         </div>
       )}
 

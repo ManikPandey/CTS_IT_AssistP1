@@ -2,7 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 const electron_1 = require("electron");
 electron_1.contextBridge.exposeInMainWorld('api', {
-    // Inventory
+    // Inventory & Dashboard
     getDashboardStats: () => electron_1.ipcRenderer.invoke('dashboard:get-stats'),
     getCategories: () => electron_1.ipcRenderer.invoke('inventory:get-categories'),
     getAssets: (categoryId) => electron_1.ipcRenderer.invoke('inventory:get-assets', categoryId),
@@ -21,9 +21,12 @@ electron_1.contextBridge.exposeInMainWorld('api', {
     getPurchaseOrder: (id) => electron_1.ipcRenderer.invoke('purchase:get-one', id),
     receiveItems: (data) => electron_1.ipcRenderer.invoke('purchase:receive-items', data),
     importPurchaseOrders: () => electron_1.ipcRenderer.invoke('purchase:import'),
-    // NEW: PDF IMPORT
     parsePurchaseOrderPDF: () => electron_1.ipcRenderer.invoke('purchase:parse-pdf'),
-    // System
+    // NEW: Maintenance Module
+    getMaintenanceRecords: () => electron_1.ipcRenderer.invoke('maintenance:get-all'),
+    createMaintenanceRecord: (data) => electron_1.ipcRenderer.invoke('maintenance:create', data),
+    resolveMaintenanceRecord: (id) => electron_1.ipcRenderer.invoke('maintenance:resolve', id),
+    // System & Security
     getAuditLogs: () => electron_1.ipcRenderer.invoke('system:get-audit-logs'),
     backupDatabase: () => electron_1.ipcRenderer.invoke('system:backup'),
 });

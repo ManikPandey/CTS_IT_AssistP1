@@ -1,6 +1,6 @@
 import React from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
-import { LayoutDashboard, Package, ShoppingCart, Settings, Database } from 'lucide-react';
+import { LayoutDashboard, Package, ShoppingCart, Settings, Database, Wrench } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export default function Layout() {
@@ -8,12 +8,13 @@ export default function Layout() {
     { to: "/", icon: LayoutDashboard, label: "Dashboard" },
     { to: "/inventory", icon: Database, label: "Inventory" },
     { to: "/purchase-orders", icon: ShoppingCart, label: "Purchase Orders" },
+    // NEW ITEM
+    { to: "/maintenance", icon: Wrench, label: "Maintenance" },
     { to: "/settings", icon: Settings, label: "Settings" },
   ];
 
   return (
     <div className="flex h-screen bg-gray-50 text-gray-900 font-sans">
-      {/* Sidebar */}
       <aside className="w-64 bg-slate-900 text-white flex flex-col shadow-xl">
         <div className="p-6 border-b border-slate-700">
           <h1 className="text-xl font-bold tracking-tight">IT Admin <span className="text-indigo-400">Pro</span></h1>
@@ -51,10 +52,8 @@ export default function Layout() {
         </div>
       </aside>
 
-      {/* Main Content Area */}
       <main className="flex-1 overflow-auto">
-        <div className="p-8 max-w-7xl mx-auto animate-in fade-in duration-500">
-          {/* This is where the page content will appear */}
+        <div className="p-8 max-w-7xl mx-auto h-full">
           <Outlet /> 
         </div>
       </main>

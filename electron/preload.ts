@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
 contextBridge.exposeInMainWorld('api', {
-  // Inventory
+  // Inventory & Dashboard
   getDashboardStats: () => ipcRenderer.invoke('dashboard:get-stats'),
   getCategories: () => ipcRenderer.invoke('inventory:get-categories'),
   getAssets: (categoryId?: string) => ipcRenderer.invoke('inventory:get-assets', categoryId),
@@ -24,11 +24,14 @@ contextBridge.exposeInMainWorld('api', {
   getPurchaseOrder: (id: string) => ipcRenderer.invoke('purchase:get-one', id),
   receiveItems: (data: any) => ipcRenderer.invoke('purchase:receive-items', data),
   importPurchaseOrders: () => ipcRenderer.invoke('purchase:import'),
-  
-  // NEW: PDF IMPORT
   parsePurchaseOrderPDF: () => ipcRenderer.invoke('purchase:parse-pdf'),
 
-  // System
+  // NEW: Maintenance Module
+  getMaintenanceRecords: () => ipcRenderer.invoke('maintenance:get-all'),
+  createMaintenanceRecord: (data: any) => ipcRenderer.invoke('maintenance:create', data),
+  resolveMaintenanceRecord: (id: string) => ipcRenderer.invoke('maintenance:resolve', id),
+
+  // System & Security
   getAuditLogs: () => ipcRenderer.invoke('system:get-audit-logs'),
   backupDatabase: () => ipcRenderer.invoke('system:backup'),
 });

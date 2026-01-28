@@ -25,43 +25,69 @@ model Category {
 }
 
 model SubCategory {
-  id          String   @id @default(cuid())
-  name        String   // e.g., "Laptops", "Printers"
-  slug        String
-  categoryId  String
-  category    Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  id               String   @id @default(cuid())
+  name             String   // e.g., "Laptops", "Printers"
+  slug             String
+  categoryId       String
+  category         Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
   
-  // This field stores the "Columns" for this subcategory.
-  fieldDefinitions String @default("[]") 
+  // This field stores the "Columns" definitions for this subcategory (JSON).
+  // Example: '[{"key":"serial","label":"Serial No","type":"text"}]'
+  fieldDefinitions String   @default("[]") 
   
-  assets      Asset[]
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  assets           Asset[]
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
   @@unique([categoryId, slug])
 }
 
 model Asset {
-  id            String      @id @default(cuid())
-  subCategoryId String
-  subCategory   SubCategory @relation(fields: [subCategoryId], references: [id])
+  id              String      @id @default(cuid())
+  subCategoryId   String
+  subCategory     SubCategory @relation(fields: [subCategoryId], references: [id])
   
   // Flexible storage for asset details (JSON)
-  properties    String      @default("{}")
+  // Stores: Name, Serial No, IP, Location, etc.
+  properties      String      @default("{}")
   
   // Status tracking
-  status        String      @default("ACTIVE") // ACTIVE, RETIRED, MAINTENANCE, IN_STOCK
+  status          String      @default("ACTIVE") // ACTIVE, RETIRED, MAINTENANCE, IN_STOCK
   
   // Link to acquisition (Optional)
   purchaseOrderId String?
   purchaseOrder   PurchaseOrder? @relation(fields: [purchaseOrderId], references: [id])
+  
+  // Link to Maintenance History
+  maintenanceRecords MaintenanceRecord[]
 
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
 }
 
 // ==========================================
-// 2. PROCUREMENT / PURCHASE ORDERS (PO)
+// 2. MAINTENANCE & ISSUES
+// ==========================================
+
+model MaintenanceRecord {
+  id          String   @id @default(cuid())
+  assetId     String
+  asset       Asset    @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  
+  issueType   String   // e.g., "Repair", "Upgrade", "Software", "Breakdown"
+  description String   // "Screen flickering..."
+  cost        Float    @default(0.0)
+  status      String   // "OPEN", "IN_PROGRESS", "CLOSED"
+  
+  reportedBy  String?  // Name of user/admin
+  resolvedDate DateTime?
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// ==========================================
+// 3. PROCUREMENT / PURCHASE ORDERS (PO)
 // ==========================================
 
 model Vendor {
@@ -85,7 +111,7 @@ model PurchaseOrder {
   vendorId        String?
   vendor          Vendor?  @relation(fields: [vendorId], references: [id])
   vendorNameSnap  String?  // Snapshot of vendor name (history protection)
-  gstin           String?  // <--- ADDED THIS FIELD (Fixes the crash)
+  gstin           String?  // Vendor GSTIN
   
   // Addresses
   billingAddress  String?
@@ -95,19 +121,21 @@ model PurchaseOrder {
   totalAmount     Float    @default(0.0)
   currency        String   @default("INR")
 
-  // Workflow / Meta Details (from your requirements)
+  // Workflow / Meta Details
   status          String   @default("DRAFT") // DRAFT, ISSUED, PARTIAL, COMPLETED
+  
+  // Analytics & Tracking Fields
   requestRef      String?  // IT-25.0075
   deptName        String?  // CTS
   requestType     String?  // PRF
   prfRef          String?  // 587
   approvedBy      String?  // Gen Admin
   
-  requestDate     DateTime?
-  actionDate      DateTime?
+  requestDate     DateTime? // For Process Delay calc
+  actionDate      DateTime? // For Order Delay calc
 
   // Terms & Conditions
-  termsAndConditions String? // e.g., "Payment Terms: Against certified original invoice"
+  termsAndConditions String? 
   remarks            String?
 
   // Relationships
@@ -136,7 +164,7 @@ model LineItem {
 }
 
 // ==========================================
-// 3. SYSTEM & AUDIT
+// 4. SYSTEM & AUDIT
 // ==========================================
 
 model AuditLog {

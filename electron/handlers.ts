@@ -6,11 +6,10 @@ import fs from 'fs';
 import path from 'path';
 
 // --- HELPER: Audit Logging ---
-// Records actions to the database for security and tracking
-// UPDATED: Accepts optional 'tx' to support logging inside transactions
+// Records actions to the database. Accepts optional 'tx' to log inside a transaction safely.
 async function logAction(action: string, entityType: string, entityId: string | null, details: string, tx?: any) {
   try {
-    const db = tx || prisma; // Use transaction client if provided, else global client
+    const db = tx || prisma; 
     await db.auditLog.create({
       data: { action, entityType, entityId, details }
     });
@@ -25,24 +24,58 @@ export function registerHandlers() {
   // 1. DASHBOARD HANDLERS
   // ==========================================
   
+  // [1] Get Dashboard Statistics
   ipcMain.handle('dashboard:get-stats', async () => {
     try {
-      const [assetCount, poCount, categoryCount] = await Promise.all([
+      // Basic Counts
+      const [assetCount, poCount, categoryCount, maintenanceCount] = await Promise.all([
         prisma.asset.count(),
         prisma.purchaseOrder.count(),
-        prisma.category.count()
+        prisma.category.count(),
+        prisma.maintenanceRecord.count({ where: { status: { not: 'CLOSED' } } })
       ]);
-      return { success: true, data: { assetCount, poCount, categoryCount } };
+
+      // Chart Data: Assets by Status
+      const statusGroups = await prisma.asset.groupBy({
+        by: ['status'],
+        _count: { status: true }
+      });
+      const assetsByStatus = statusGroups.map((g:any) => ({ name: g.status, value: g._count.status }));
+
+      // Chart Data: Assets by Category
+      const categories = await prisma.category.findMany({
+        include: {
+          subCategories: { include: { _count: { select: { assets: true } } } }
+        }
+      });
+      const assetsByCategory = categories.map((cat: any) => ({
+        name: cat.name,
+        value: cat.subCategories.reduce((acc: any, sub: any) => acc + sub._count.assets, 0)
+      })).filter((c:any) => c.value > 0);
+
+      // Chart Data: Purchase Cost by Month
+      const allPOs = await prisma.purchaseOrder.findMany({ select: { date: true, totalAmount: true } });
+      const costMap: Record<string, number> = {};
+      allPOs.forEach((po:any) => {
+        const month = new Date(po.date).toLocaleString('default', { month: 'short', year: '2-digit' });
+        costMap[month] = (costMap[month] || 0) + po.totalAmount;
+      });
+      const costByMonth = Object.entries(costMap).map(([name, value]) => ({ name, value }));
+
+      return { 
+        success: true, 
+        data: { assetCount, poCount, categoryCount, maintenanceCount, assetsByStatus, assetsByCategory, costByMonth } 
+      };
     } catch (error) {
       return { success: false, error: "Failed to fetch stats" };
     }
   });
 
   // ==========================================
-  // 2. INVENTORY HANDLERS
+  // 2. INVENTORY HANDLERS (Categories/Assets)
   // ==========================================
 
-  // Get Categories tree
+  // [2] Get Categories Tree
   ipcMain.handle('inventory:get-categories', async () => {
     try {
       const categories = await prisma.category.findMany({
@@ -55,7 +88,7 @@ export function registerHandlers() {
     }
   });
 
-  // Get Assets (Filtered)
+  // [3] Get Assets (Filtered)
   ipcMain.handle('inventory:get-assets', async (_, categoryId?: string) => {
     try {
       const whereClause = categoryId ? { subCategory: { categoryId: categoryId } } : {};
@@ -71,7 +104,7 @@ export function registerHandlers() {
     }
   });
 
-  // Create Category
+  // [4] Create Category
   ipcMain.handle('inventory:create-category', async (_, data: { name: string }) => {
     try {
       const slug = data.name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
@@ -83,7 +116,7 @@ export function registerHandlers() {
     }
   });
 
-  // Update Category
+  // [5] Update Category
   ipcMain.handle('inventory:update-category', async (_, { id, data }: { id: string, data: any }) => {
     try {
        if (data.name) data.slug = data.name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
@@ -95,7 +128,7 @@ export function registerHandlers() {
     }
   });
 
-  // Create Sub-Category
+  // [6] Create Sub-Category
   ipcMain.handle('inventory:create-subcategory', async (_, { categoryId, name }: { categoryId: string, name: string }) => {
     try {
       const category = await prisma.category.findUnique({ where: { id: categoryId } });
@@ -113,7 +146,7 @@ export function registerHandlers() {
     }
   });
 
-  // Update Sub-Category (Field Definitions)
+  // [7] Update Sub-Category (Renaming or Field Definitions)
   ipcMain.handle('inventory:update-subcategory', async (_, { id, data }: { id: string, data: any }) => {
     try {
       if (data.fieldDefinitions && typeof data.fieldDefinitions !== 'string') {
@@ -127,7 +160,7 @@ export function registerHandlers() {
     }
   });
 
-  // Create Asset
+  // [8] Create Asset
   ipcMain.handle('inventory:create-asset', async (_, { subCategoryId, status, properties }: { subCategoryId: string, status: string, properties: any }) => {
     try {
       const asset = await prisma.asset.create({
@@ -145,7 +178,7 @@ export function registerHandlers() {
     }
   });
 
-  // Update Asset
+  // [9] Update Asset
   ipcMain.handle('inventory:update-asset', async (_, { id, status, properties }: { id: string, status: string, properties: any }) => {
     try {
       const asset = await prisma.asset.update({
@@ -163,7 +196,7 @@ export function registerHandlers() {
     }
   });
 
-  // Import Inventory Excel
+  // [10] Import Inventory Excel
   ipcMain.handle('inventory:import-excel', async () => {
     const result = await dialog.showOpenDialog({
       properties: ['openFile'],
@@ -181,7 +214,7 @@ export function registerHandlers() {
     }
   });
 
-  // Export Inventory Excel
+  // [11] Export Inventory Excel
   ipcMain.handle('inventory:export-excel', async () => {
     const result = await dialog.showSaveDialog({
       title: 'Export Inventory Report',
@@ -204,7 +237,7 @@ export function registerHandlers() {
   // 3. PURCHASE ORDER HANDLERS
   // ==========================================
 
-  // Get All POs
+  // [12] Get All POs
   ipcMain.handle('purchase:get-all', async () => {
     try {
       const pos = await prisma.purchaseOrder.findMany({
@@ -217,10 +250,10 @@ export function registerHandlers() {
     }
   });
 
-  // Create PO
+  // [13] Create PO
   ipcMain.handle('purchase:create', async (_, poData: any) => {
     try {
-      // Destructure to handle fields not directly in schema top-level
+      // Destructure to handle fields
       const { lineItems, vendorName, gstin, ...header } = poData;
 
       const newPO = await prisma.purchaseOrder.create({
@@ -251,7 +284,7 @@ export function registerHandlers() {
     }
   });
 
-  // Delete PO
+  // [14] Delete PO
   ipcMain.handle('purchase:delete', async (_, id: string) => {
     try {
       const po = await prisma.purchaseOrder.findUnique({ where: { id } });
@@ -263,7 +296,7 @@ export function registerHandlers() {
     }
   });
 
-  // Get Single PO
+  // [15] Get Single PO
   ipcMain.handle('purchase:get-one', async (_, id: string) => {
     try {
       const po = await prisma.purchaseOrder.findUnique({
@@ -276,13 +309,13 @@ export function registerHandlers() {
     }
   });
 
-  // Receive Items (GRN Logic)
+  // [16] Receive Items (GRN) - BULK INSERT LOGIC
   ipcMain.handle('purchase:receive-items', async (_, payload: { 
     poId: string, 
     items: Array<{ lineItemId: string, quantity: number, categoryId: string, subCategoryId: string, serials: string[] }> 
   }) => {
     try {
-      // 1. Set Timeout to 20 seconds for large batches
+      // 20 Second timeout for large batches
       await prisma.$transaction(async (tx: any) => {
         let itemsReceivedCount = 0;
         
@@ -292,7 +325,7 @@ export function registerHandlers() {
              throw new Error(`Sub-Category selection is missing for item (Line ID: ${item.lineItemId}).`);
           }
 
-          // A. Update Received Qty
+          // A. Update Received Qty in PO Line Item
           await tx.lineItem.update({
             where: { id: item.lineItemId },
             data: { receivedQty: { increment: item.quantity } }
@@ -302,13 +335,12 @@ export function registerHandlers() {
           const lineItem = await tx.lineItem.findUnique({ where: { id: item.lineItemId } });
           const productName = lineItem?.productName || "Received Asset";
 
-          // C. PREPARE ASSETS FOR BULK INSERT
-          // This creates the array in memory instead of awaiting database calls one by one
+          // C. Prepare Bulk Data for Asset Creation
           const assetsData = item.serials.map(serial => {
             const propertiesObj = {
-                name: productName,
-                serial: serial || "Unknown",
-                "po_ref": payload.poId
+                Name: productName,
+                "Serial No": serial || "Unknown",
+                "PO Ref": payload.poId
             };
             
             return {
@@ -319,7 +351,7 @@ export function registerHandlers() {
             };
           });
 
-          // D. BULK INSERT (Much Faster)
+          // D. Bulk Insert (Performance Optimization)
           if (assetsData.length > 0) {
             await tx.asset.createMany({
                 data: assetsData
@@ -339,11 +371,11 @@ export function registerHandlers() {
           const newStatus = allReceived ? "COMPLETED" : "PARTIAL";
           await tx.purchaseOrder.update({ where: { id: payload.poId }, data: { status: newStatus } });
           
-          // FIXED: Pass the 'tx' object to logAction to avoid Socket Timeout (deadlock)
+          // Use 'tx' for logging to avoid deadlock/socket timeout
           await logAction('RECEIVE', 'PO', payload.poId, `Received ${itemsReceivedCount} items. Status: ${newStatus}`, tx);
         }
       }, {
-        timeout: 20000 // 20 Seconds Timeout
+        timeout: 20000 
       });
 
       return { success: true };
@@ -353,7 +385,7 @@ export function registerHandlers() {
     }
   });
 
-  // Import POs from Excel
+  // [17] Import POs from Excel
   ipcMain.handle('purchase:import', async () => {
     const result = await dialog.showOpenDialog({
       properties: ['openFile'],
@@ -371,7 +403,7 @@ export function registerHandlers() {
     }
   });
 
-  // Parse PDF PO
+  // [18] Parse PDF PO
   ipcMain.handle('purchase:parse-pdf', async () => {
     const result = await dialog.showOpenDialog({
       properties: ['openFile'],
@@ -389,9 +421,65 @@ export function registerHandlers() {
   });
 
   // ==========================================
-  // 4. SYSTEM HANDLERS
+  // 4. MAINTENANCE HANDLERS
   // ==========================================
 
+  // [19] Create Maintenance Record
+  ipcMain.handle('maintenance:create', async (_, data: any) => {
+    try {
+      const record = await prisma.maintenanceRecord.create({
+        data: {
+          assetId: data.assetId,
+          issueType: data.issueType,
+          description: data.description,
+          cost: parseFloat(data.cost) || 0,
+          status: "OPEN",
+          reportedBy: "Admin"
+        }
+      });
+      // Auto-set status
+      await prisma.asset.update({ where: { id: data.assetId }, data: { status: "MAINTENANCE" } });
+      await logAction('MAINTENANCE', 'ASSET', data.assetId, `Reported issue: ${data.issueType}`);
+      return { success: true, data: record };
+    } catch (e: any) {
+      return { success: false, error: e.message };
+    }
+  });
+
+  // [20] Get All Maintenance Records
+  ipcMain.handle('maintenance:get-all', async () => {
+    try {
+      const records = await prisma.maintenanceRecord.findMany({
+        orderBy: { createdAt: 'desc' },
+        include: { asset: { include: { subCategory: { include: { category: true } } } } }
+      });
+      return { success: true, data: records };
+    } catch (e) {
+      return { success: false, error: "Failed to fetch maintenance records" };
+    }
+  });
+
+  // [21] Resolve Maintenance Record
+  ipcMain.handle('maintenance:resolve', async (_, { id, cost }: { id: string, cost: number }) => {
+    try {
+      const record = await prisma.maintenanceRecord.update({
+        where: { id },
+        data: { status: "CLOSED", resolvedDate: new Date(), cost: cost || 0 }
+      });
+      // Restore asset status
+      await prisma.asset.update({ where: { id: record.assetId }, data: { status: "ACTIVE" } });
+      await logAction('MAINTENANCE', 'ASSET', record.assetId, `Resolved issue: ${record.issueType}. Cost: ${cost}`);
+      return { success: true };
+    } catch (e: any) {
+      return { success: false, error: e.message };
+    }
+  });
+
+  // ==========================================
+  // 5. SYSTEM HANDLERS
+  // ==========================================
+
+  // [22] Get Audit Logs
   ipcMain.handle('system:get-audit-logs', async () => {
     try {
       const logs = await prisma.auditLog.findMany({
@@ -404,6 +492,7 @@ export function registerHandlers() {
     }
   });
 
+  // [23] Backup Database
   ipcMain.handle('system:backup', async () => {
     const result = await dialog.showSaveDialog({
       title: 'Backup Database',
