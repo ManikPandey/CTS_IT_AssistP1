@@ -8,24 +8,20 @@ exports.exportExcelData = exportExcelData;
 exports.importPurchaseOrders = importPurchaseOrders;
 const exceljs_1 = __importDefault(require("exceljs"));
 const db_1 = require("../db");
-// ... existing importExcelData function ...
-// KEEP the previous importExcelData function here! 
-// Just ADD this new function below it.
+// --- 1. IMPORT INVENTORY ASSETS ---
 async function importExcelData(filePath) {
     const workbook = new exceljs_1.default.Workbook();
     await workbook.xlsx.readFile(filePath);
     const worksheet = workbook.getWorksheet(1); // Read first sheet
     if (!worksheet)
         return { success: false, error: "Excel file is empty or has no sheets." };
-    // 1. Scan Headers (Row 1)
+    // Scan Headers (Row 1)
     const headers = [];
     worksheet.getRow(1).eachCell((cell, colNumber) => {
         headers[colNumber] = cell.text?.toString().trim().toLowerCase() || '';
     });
     // Validate required headers
-    // We need at least "Category" and "Name" (or "Model") to know what we are saving.
     const catIndex = headers.indexOf('category');
-    const nameIndex = headers.indexOf('name'); // or 'product', 'item'
     if (catIndex === -1) {
         return { success: false, error: "Missing required column: 'Category'. Please check the Excel file." };
     }
@@ -34,9 +30,7 @@ async function importExcelData(filePath) {
         success: 0,
         errors: []
     };
-    // 2. Iterate Rows (Starting from Row 2)
-    // We use a transaction to ensure database integrity is slightly faster, 
-    // but for "robustness" we will process row-by-row so one bad row doesn't kill the batch.
+    // Iterate Rows (Starting from Row 2)
     const rows = worksheet.getRows(2, worksheet.rowCount) || [];
     for (const row of rows) {
         if (!row.hasValues)
@@ -44,22 +38,18 @@ async function importExcelData(filePath) {
         try {
             report.total++;
             // A. Extract Core Data
-            // cell indices in ExcelJS are 1-based, but our header array is 1-based mapped manually above
             const categoryName = row.getCell(catIndex).text?.toString().trim();
-            const assetName = nameIndex !== -1 ? row.getCell(nameIndex).text?.toString().trim() : "Unknown Asset";
             if (!categoryName) {
                 report.errors.push(`Row ${row.number}: Missing Category`);
                 continue;
             }
             // B. Find or Create Category
-            // We check if the category exists. If not, we skip (Strict Mode) or Create (Flexible Mode).
-            // Let's use Flexible Mode: Create category if missing.
             let category = await db_1.prisma.category.findFirst({ where: { name: categoryName } });
             if (!category) {
                 const slug = categoryName.toLowerCase().replace(/[^a-z0-9]+/g, '-');
                 category = await db_1.prisma.category.create({ data: { name: categoryName, slug } });
             }
-            // C. Handle SubCategory (Optional Column)
+            // C. Find or Create SubCategory
             let subCategoryId = "";
             const subCatIndex = headers.indexOf('subcategory');
             const subCatName = subCatIndex !== -1 ? row.getCell(subCatIndex).text?.toString().trim() : "General";
@@ -78,7 +68,6 @@ async function importExcelData(filePath) {
             }
             subCategoryId = subCategory.id;
             // D. Extract Dynamic Properties
-            // Any column that isn't Category/SubCategory/Name gets saved into JSON
             const properties = {};
             headers.forEach((header, index) => {
                 if (!header)
@@ -107,16 +96,22 @@ async function importExcelData(filePath) {
     }
     return { success: true, report };
 }
+// --- 2. ADVANCED EXPORT INVENTORY ---
 async function exportExcelData(filePath) {
     const workbook = new exceljs_1.default.Workbook();
     workbook.creator = 'IT Asset Manager';
     workbook.created = new Date();
-    // 1. Fetch ALL Data
-    // Explicitly type asset as any to resolve implicit any error
-    const assets = await db_1.prisma.asset.findMany({
-        include: { subCategory: { include: { category: true } } }
+    // Fetch all categories with full depth
+    const categories = await db_1.prisma.category.findMany({
+        include: {
+            subCategories: {
+                include: {
+                    assets: true
+                }
+            }
+        }
     });
-    // --- SHEET 1: EXECUTIVE SUMMARY ---
+    // --- SHEET 1: DASHBOARD SUMMARY ---
     const summarySheet = workbook.addWorksheet('Dashboard', {
         views: [{ showGridLines: false }]
     });
@@ -128,50 +123,78 @@ async function exportExcelData(filePath) {
     titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E293B' } }; // Slate 900
     titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
     summarySheet.getRow(1).height = 30;
-    // Stats Calculation
+    // Calculate Stats
     const categoryCounts = {};
-    const statusCounts = {};
-    assets.forEach((asset) => {
-        const cat = asset.subCategory?.category?.name || 'Unknown';
-        categoryCounts[cat] = (categoryCounts[cat] || 0) + 1;
-        statusCounts[asset.status] = (statusCounts[asset.status] || 0) + 1;
+    const allAssetsFlat = [];
+    categories.forEach((cat) => {
+        let count = 0;
+        cat.subCategories.forEach((sub) => {
+            count += sub.assets.length;
+            // Flatten for the "All Assets" sheet
+            sub.assets.forEach((a) => {
+                allAssetsFlat.push({
+                    ...a,
+                    categoryName: cat.name,
+                    subCategoryName: sub.name
+                });
+            });
+        });
+        categoryCounts[cat.name] = count;
     });
-    // Write Category Table
-    summarySheet.getCell('A3').value = "Asset Breakdown by Category";
-    summarySheet.getCell('A3').font = { bold: true, size: 12 };
-    summarySheet.getCell('A4').value = "Category";
-    summarySheet.getCell('B4').value = "Count";
-    summarySheet.getRow(4).font = { bold: true };
-    summarySheet.getRow(4).border = { bottom: { style: 'thin' } };
-    let rowIdx = 5;
+    // Write Summary Table
+    let rowIdx = 3;
+    summarySheet.getCell(`A${rowIdx}`).value = "Category Summary";
+    summarySheet.getCell(`A${rowIdx}`).font = { bold: true, size: 12 };
+    rowIdx++;
+    summarySheet.getCell(`A${rowIdx}`).value = "Category";
+    summarySheet.getCell(`B${rowIdx}`).value = "Total Assets";
+    summarySheet.getRow(rowIdx).font = { bold: true };
+    summarySheet.getRow(rowIdx).border = { bottom: { style: 'thin' } };
+    rowIdx++;
     Object.entries(categoryCounts).forEach(([cat, count]) => {
         summarySheet.getCell(`A${rowIdx}`).value = cat;
         summarySheet.getCell(`B${rowIdx}`).value = count;
         rowIdx++;
     });
-    // Write Status Table
-    summarySheet.getCell('D3').value = "Asset Status Overview";
-    summarySheet.getCell('D3').font = { bold: true, size: 12 };
-    summarySheet.getCell('D4').value = "Status";
-    summarySheet.getCell('E4').value = "Count";
-    rowIdx = 5;
-    Object.entries(statusCounts).forEach(([status, count]) => {
-        summarySheet.getCell(`D${rowIdx}`).value = status;
-        summarySheet.getCell(`E${rowIdx}`).value = count;
-        rowIdx++;
+    // --- SHEET 2: ALL ASSETS (Master List) ---
+    const allSheet = workbook.addWorksheet('All Assets');
+    populateSheetWithAssets(allSheet, allAssetsFlat);
+    // --- SHEET 3+: PER CATEGORY SHEETS ---
+    categories.forEach((cat) => {
+        const catAssets = [];
+        cat.subCategories.forEach((sub) => {
+            sub.assets.forEach((a) => {
+                catAssets.push({
+                    ...a,
+                    categoryName: cat.name,
+                    subCategoryName: sub.name
+                });
+            });
+        });
+        if (catAssets.length > 0) {
+            // Sanitize sheet name (max 31 chars, no special chars)
+            const safeName = cat.name.replace(/[\[\]\:\*\?\/\\\']/g, '').substring(0, 30) || "Sheet";
+            const catSheet = workbook.addWorksheet(safeName);
+            populateSheetWithAssets(catSheet, catAssets);
+        }
     });
-    // --- SHEET 2: RAW DATA ---
-    const dataSheet = workbook.addWorksheet('All Assets');
-    // Identify all dynamic keys across all assets
+    await workbook.xlsx.writeFile(filePath);
+    return { success: true };
+}
+// Helper to fill data into a sheet dynamically
+function populateSheetWithAssets(sheet, assets) {
+    if (assets.length === 0)
+        return;
+    // 1. Identify all dynamic keys across these assets
     const dynamicKeys = new Set();
-    assets.forEach((asset) => {
+    assets.forEach(asset => {
         try {
             const props = JSON.parse(asset.properties);
             Object.keys(props).forEach(k => dynamicKeys.add(k));
         }
         catch (e) { }
     });
-    // Sort keys for consistency (put Name/Serial first if they exist)
+    // Sort keys (prioritize Name, Serial, Model)
     const sortedKeys = Array.from(dynamicKeys).sort((a, b) => {
         const priority = ['name', 'serial', 'serial no', 'model'];
         const ia = priority.indexOf(a.toLowerCase());
@@ -184,45 +207,42 @@ async function exportExcelData(filePath) {
             return 1;
         return a.localeCompare(b);
     });
-    // Setup Columns
+    // 2. Define Headers
     const columns = [
-        { header: 'Asset ID', key: 'id', width: 25 },
-        { header: 'Category', key: 'category', width: 20 },
-        { header: 'SubCategory', key: 'subcategory', width: 20 },
+        { header: 'Asset ID', key: 'id', width: 15 },
+        { header: 'Category', key: 'categoryName', width: 20 },
+        { header: 'SubCategory', key: 'subCategoryName', width: 20 },
         { header: 'Status', key: 'status', width: 15 },
         { header: 'Last Updated', key: 'updated', width: 15 },
         ...sortedKeys.map(k => ({ header: k.toUpperCase(), key: k, width: 20 }))
     ];
-    dataSheet.columns = columns;
-    // Style Header Row
-    dataSheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
-    dataSheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF475569' } }; // Slate 600
-    // Add Rows
-    assets.forEach((asset) => {
+    sheet.columns = columns;
+    // 3. Style Header
+    sheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    sheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF475569' } };
+    // 4. Add Rows
+    assets.forEach(asset => {
         let props = {};
         try {
             props = JSON.parse(asset.properties);
         }
         catch (e) { }
-        const rowData = {
-            id: asset.id,
-            category: asset.subCategory?.category?.name,
-            subcategory: asset.subCategory?.name,
+        sheet.addRow({
+            id: asset.id.slice(0, 8), // Short ID
+            categoryName: asset.categoryName,
+            subCategoryName: asset.subCategoryName,
             status: asset.status,
-            updated: asset.updatedAt.toISOString().split('T')[0],
-            ...props // Spread dynamic properties
-        };
-        dataSheet.addRow(rowData);
+            updated: asset.updatedAt ? new Date(asset.updatedAt).toISOString().split('T')[0] : '',
+            ...props
+        });
     });
-    // Add AutoFilter
-    dataSheet.autoFilter = {
+    // 5. Auto Filter
+    sheet.autoFilter = {
         from: { row: 1, column: 1 },
         to: { row: 1, column: columns.length }
     };
-    await workbook.xlsx.writeFile(filePath);
-    return { success: true };
 }
-// --- NEW: IMPORT PURCHASE ORDERS ---
+// --- 3. IMPORT PURCHASE ORDERS ---
 async function importPurchaseOrders(filePath) {
     const workbook = new exceljs_1.default.Workbook();
     await workbook.xlsx.readFile(filePath);
@@ -234,7 +254,7 @@ async function importPurchaseOrders(filePath) {
     worksheet.getRow(1).eachCell((cell, col) => {
         headers[col] = cell.text?.toString().trim().toLowerCase() || '';
     });
-    // Required: PO Number, Date, Vendor, Product, Qty, Price
+    // Required columns
     const poIdx = headers.indexOf('po number');
     const dateIdx = headers.indexOf('date');
     const vendorIdx = headers.indexOf('vendor');
@@ -287,7 +307,7 @@ async function importPurchaseOrders(filePath) {
         const existing = await db_1.prisma.purchaseOrder.findUnique({ where: { poNumber: poData.poNumber } });
         if (existing)
             continue; // Skip duplicates
-        // Calculate Total
+        // Calculate Grand Total
         const grandTotal = poData.lineItems.reduce((acc, item) => acc + item.totalAmount, 0);
         await db_1.prisma.purchaseOrder.create({
             data: {

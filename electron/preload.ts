@@ -6,7 +6,6 @@ contextBridge.exposeInMainWorld('api', {
   login: (creds: any) => ipcRenderer.invoke('auth:login', creds),
   register: (data: any) => ipcRenderer.invoke('auth:register', data),
   getUsers: () => ipcRenderer.invoke('auth:get-users'),
-  // NEW: Change Password
   changePassword: (data: any) => ipcRenderer.invoke('auth:change-password', data),
 
   // --- INVENTORY & DASHBOARD ---
@@ -48,7 +47,12 @@ contextBridge.exposeInMainWorld('api', {
   getMaintenanceRecords: () => ipcRenderer.invoke('maintenance:get-all'),
   resolveMaintenanceRecord: (data: any) => ipcRenderer.invoke('maintenance:resolve', data),
 
-  // --- SYSTEM ---
+  // --- SYSTEM & SETTINGS ---
   getAuditLogs: () => ipcRenderer.invoke('system:get-audit-logs'),
   backupDatabase: () => ipcRenderer.invoke('system:backup'),
+
+  // NEW: Delete Handlers (Added in Phase 10)
+  deleteAsset: (id: string) => ipcRenderer.invoke('system:delete-asset', id),
+  deleteSubCategory: (id: string) => ipcRenderer.invoke('system:delete-subcategory', id),
+  deleteCategory: (id: string) => ipcRenderer.invoke('system:delete-category', id),
 });

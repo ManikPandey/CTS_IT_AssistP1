@@ -11,13 +11,13 @@ datasource db {
 }
 
 // ==========================================
-// 1. AUTHENTICATION & USERS (NEW)
+// 1. AUTHENTICATION & USERS
 // ==========================================
 
 model User {
   id        String   @id @default(cuid())
   username  String   @unique
-  password  String   // In production, this should be hashed!
+  password  String   // Hashed
   name      String
   role      String   // "ADMIN" | "USER"
   createdAt DateTime @default(now())
@@ -45,8 +45,7 @@ model SubCategory {
   categoryId       String
   category         Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
   
-  // This field stores the "Columns" definitions for this subcategory (JSON).
-  // Example: '[{"key":"serial","label":"Serial No","type":"text"}]'
+  // Stores column definitions for dynamic forms (e.g. [{"key":"ram", "type":"text"}])
   fieldDefinitions String   @default("[]") 
   
   assets           Asset[]
@@ -62,11 +61,11 @@ model Asset {
   subCategory     SubCategory @relation(fields: [subCategoryId], references: [id])
   
   // Flexible storage for asset details (JSON)
-  // Stores: Name, Serial No, IP, Location, etc.
+  // Stores: Name, Serial No, IP, Location, RAM, etc.
   properties      String      @default("{}")
   
-  // Status tracking
-  status          String      @default("ACTIVE") // ACTIVE, RETIRED, MAINTENANCE, IN_STOCK
+  // Status: ACTIVE, RETIRED, MAINTENANCE, IN_STOCK, OUT_STOCK
+  status          String      @default("ACTIVE") 
   
   // Link to acquisition (Optional)
   purchaseOrderId String?
@@ -125,7 +124,7 @@ model PurchaseOrder {
   vendorId        String?
   vendor          Vendor?  @relation(fields: [vendorId], references: [id])
   vendorNameSnap  String?  // Snapshot of vendor name (history protection)
-  gstin           String?  // Vendor GSTIN (Critical for validation fix)
+  gstin           String?  // Vendor GSTIN
   
   // Addresses
   billingAddress  String?
@@ -151,6 +150,10 @@ model PurchaseOrder {
   // Terms & Conditions
   termsAndConditions String? 
   remarks            String?
+
+  // NEW: Dynamic PO Attributes (e.g. Project Code, Budget Head)
+  // This stores extra fields that don't have a dedicated column
+  properties       String    @default("{}")
 
   // Relationships
   lineItems       LineItem[]
@@ -184,7 +187,7 @@ model LineItem {
 model AuditLog {
   id          String   @id @default(cuid())
   action      String   // CREATE, UPDATE, DELETE, IMPORT, EXPORT, LOGIN, BACKUP
-  entityType  String   // ASSET, PO, SYSTEM, USER, CATEGORY
+  entityType  String   // ASSET, PO, SYSTEM, USER
   entityId    String?
   details     String?  // Description of what changed
   timestamp   DateTime @default(now())

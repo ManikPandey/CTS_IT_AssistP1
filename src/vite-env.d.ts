@@ -51,5 +51,10 @@ interface Window {
     // --- SYSTEM & AUDIT ---
     getAuditLogs: () => Promise<{ success: boolean; data: any[]; error?: string }>;
     backupDatabase: () => Promise<{ success: boolean; filePath?: string; error?: string }>;
+
+    // NEW: Delete Handlers
+    deleteAsset: (id: string) => Promise<{ success: boolean; error?: string }>;
+    deleteSubCategory: (id: string) => Promise<{ success: boolean; error?: string }>;
+    deleteCategory: (id: string) => Promise<{ success: boolean; error?: string }>;
   }
-} 
+}

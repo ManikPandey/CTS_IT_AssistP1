@@ -10,6 +10,7 @@ export declare function parsePurchaseOrderPDF(filePath: string): Promise<{
         vendorName: string;
         gstin: string;
         lineItems: any[];
+        properties: any;
     };
     error?: undefined;
 }>;

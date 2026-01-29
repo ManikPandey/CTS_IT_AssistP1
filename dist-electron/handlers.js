@@ -107,40 +107,30 @@ function registerHandlers() {
     // ==========================================
     electron_1.ipcMain.handle('dashboard:get-stats', async () => {
         try {
-            // Basic Counts
             const [assetCount, poCount, categoryCount, maintenanceCount] = await Promise.all([
                 db_1.prisma.asset.count(),
                 db_1.prisma.purchaseOrder.count(),
                 db_1.prisma.category.count(),
                 db_1.prisma.maintenanceRecord.count({ where: { status: { not: 'CLOSED' } } })
             ]);
-            // Chart Data: Assets by Status
-            const statusGroups = await db_1.prisma.asset.groupBy({
-                by: ['status'],
-                _count: { status: true }
-            });
+            // UPDATED: Stock Analysis
+            const inStock = await db_1.prisma.asset.count({ where: { status: 'IN_STOCK' } });
+            const outStock = await db_1.prisma.asset.count({ where: { status: 'OUT_STOCK' } });
+            const statusGroups = await db_1.prisma.asset.groupBy({ by: ['status'], _count: { status: true } });
             const assetsByStatus = statusGroups.map((g) => ({ name: g.status, value: g._count.status }));
-            // Chart Data: Assets by Category
-            const categories = await db_1.prisma.category.findMany({
-                include: {
-                    subCategories: { include: { _count: { select: { assets: true } } } }
-                }
-            });
-            const assetsByCategory = categories.map((cat) => ({
-                name: cat.name,
-                value: cat.subCategories.reduce((acc, sub) => acc + sub._count.assets, 0)
-            })).filter((c) => c.value > 0);
-            // Chart Data: Purchase Cost by Month
+            const categories = await db_1.prisma.category.findMany({ include: { subCategories: { include: { _count: { select: { assets: true } } } } } });
+            const assetsByCategory = categories.map((cat) => ({ name: cat.name, value: cat.subCategories.reduce((acc, sub) => acc + sub._count.assets, 0) })).filter((c) => c.value > 0);
             const allPOs = await db_1.prisma.purchaseOrder.findMany({ select: { date: true, totalAmount: true } });
             const costMap = {};
-            allPOs.forEach((po) => {
-                const month = new Date(po.date).toLocaleString('default', { month: 'short', year: '2-digit' });
-                costMap[month] = (costMap[month] || 0) + po.totalAmount;
-            });
+            allPOs.forEach((po) => { const month = new Date(po.date).toLocaleString('default', { month: 'short', year: '2-digit' }); costMap[month] = (costMap[month] || 0) + po.totalAmount; });
             const costByMonth = Object.entries(costMap).map(([name, value]) => ({ name, value }));
             return {
                 success: true,
-                data: { assetCount, poCount, categoryCount, maintenanceCount, assetsByStatus, assetsByCategory, costByMonth }
+                data: {
+                    assetCount, poCount, categoryCount, maintenanceCount,
+                    inStock, outStock, // NEW
+                    assetsByStatus, assetsByCategory, costByMonth
+                }
             };
         }
         catch (error) {
@@ -313,12 +303,13 @@ function registerHandlers() {
     });
     electron_1.ipcMain.handle('purchase:create', async (_, poData) => {
         try {
-            const { lineItems, vendorName, gstin, ...header } = poData;
+            const { lineItems, vendorName, gstin, properties, ...header } = poData; // Extract 'properties'
             const newPO = await db_1.prisma.purchaseOrder.create({
                 data: {
                     ...header,
                     vendorNameSnap: vendorName,
                     gstin: gstin,
+                    properties: JSON.stringify(properties || {}), // Store as JSON
                     date: new Date(header.date),
                     lineItems: {
                         create: lineItems.map((item) => ({
@@ -333,12 +324,11 @@ function registerHandlers() {
                     }
                 }
             });
-            await logAction('CREATE', 'PO', newPO.id, `Created PO ${newPO.poNumber} for ${vendorName}`);
+            await logAction('CREATE', 'PO', newPO.id, `Created PO ${newPO.poNumber}`);
             return { success: true, data: newPO };
         }
         catch (error) {
-            console.error("Create PO Error:", error);
-            return { success: false, error: "Failed to create PO: " + error.message };
+            return { success: false, error: error.message };
         }
     });
     electron_1.ipcMain.handle('purchase:delete', async (_, id) => {
@@ -539,6 +529,42 @@ function registerHandlers() {
         }
         catch (error) {
             return { success: false, error: error.message };
+        }
+    });
+    electron_1.ipcMain.handle('system:delete-asset', async (_, id) => {
+        try {
+            await db_1.prisma.asset.delete({ where: { id } });
+            await logAction('DELETE', 'ASSET', id, 'Deleted asset manually');
+            return { success: true };
+        }
+        catch (e) {
+            return { success: false, error: e.message };
+        }
+    });
+    electron_1.ipcMain.handle('system:delete-subcategory', async (_, id) => {
+        try {
+            const sub = await db_1.prisma.subCategory.findUnique({ where: { id }, include: { _count: { select: { assets: true } } } });
+            if (sub && sub._count.assets > 0)
+                return { success: false, error: "Cannot delete: Sub-Category is not empty." };
+            await db_1.prisma.subCategory.delete({ where: { id } });
+            await logAction('DELETE', 'SUBCATEGORY', id, 'Deleted sub-category');
+            return { success: true };
+        }
+        catch (e) {
+            return { success: false, error: e.message };
+        }
+    });
+    electron_1.ipcMain.handle('system:delete-category', async (_, id) => {
+        try {
+            const cat = await db_1.prisma.category.findUnique({ where: { id }, include: { subCategories: true } });
+            if (cat && cat.subCategories.length > 0)
+                return { success: false, error: "Cannot delete: Category has sub-categories." };
+            await db_1.prisma.category.delete({ where: { id } });
+            await logAction('DELETE', 'CATEGORY', id, 'Deleted category');
+            return { success: true };
+        }
+        catch (e) {
+            return { success: false, error: e.message };
         }
     });
     console.log('✅ IPC Handlers Registered');

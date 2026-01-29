@@ -7,7 +7,6 @@ electron_1.contextBridge.exposeInMainWorld('api', {
     login: (creds) => electron_1.ipcRenderer.invoke('auth:login', creds),
     register: (data) => electron_1.ipcRenderer.invoke('auth:register', data),
     getUsers: () => electron_1.ipcRenderer.invoke('auth:get-users'),
-    // NEW: Change Password
     changePassword: (data) => electron_1.ipcRenderer.invoke('auth:change-password', data),
     // --- INVENTORY & DASHBOARD ---
     getDashboardStats: () => electron_1.ipcRenderer.invoke('dashboard:get-stats'),
@@ -39,7 +38,11 @@ electron_1.contextBridge.exposeInMainWorld('api', {
     createMaintenanceRecord: (data) => electron_1.ipcRenderer.invoke('maintenance:create', data),
     getMaintenanceRecords: () => electron_1.ipcRenderer.invoke('maintenance:get-all'),
     resolveMaintenanceRecord: (data) => electron_1.ipcRenderer.invoke('maintenance:resolve', data),
-    // --- SYSTEM ---
+    // --- SYSTEM & SETTINGS ---
     getAuditLogs: () => electron_1.ipcRenderer.invoke('system:get-audit-logs'),
     backupDatabase: () => electron_1.ipcRenderer.invoke('system:backup'),
+    // NEW: Delete Handlers (Added in Phase 10)
+    deleteAsset: (id) => electron_1.ipcRenderer.invoke('system:delete-asset', id),
+    deleteSubCategory: (id) => electron_1.ipcRenderer.invoke('system:delete-subcategory', id),
+    deleteCategory: (id) => electron_1.ipcRenderer.invoke('system:delete-category', id),
 });

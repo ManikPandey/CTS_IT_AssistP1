@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Shield, Database, History, Download, HardDrive, User, UserPlus, LogOut, Trash2, Key } from 'lucide-react';
+import { Shield, Database, History, Download, HardDrive, User, UserPlus, LogOut, Trash2, Key, AlertOctagon } from 'lucide-react';
 import { useUser } from '@/context/UserContext';
 
 // Simple Modal for Password Reset
@@ -36,11 +36,17 @@ function PasswordModal({ isOpen, onClose, username, onSubmit }: any) {
 export default function Settings() {
   const [logs, setLogs] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);
+  const [categories, setCategories] = useState<any[]>([]); // For deletion dropdowns
   const [loading, setLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState('audit'); // 'audit' | 'data' | 'users'
+  const [activeTab, setActiveTab] = useState('audit'); // 'audit' | 'data' | 'users' | 'management'
   
   const [newUser, setNewUser] = useState({ name: '', username: '', password: '', role: 'USER' });
   const [resetModal, setResetModal] = useState<{ id: string, username: string } | null>(null);
+  
+  // Deletion State
+  const [deleteCatId, setDeleteCatId] = useState('');
+  const [deleteSubId, setDeleteSubId] = useState('');
+  const [deleteAssetId, setDeleteAssetId] = useState('');
 
   const { user, isAdmin, logout } = useUser();
 
@@ -53,6 +59,10 @@ export default function Settings() {
     if (activeTab === 'users' && isAdmin) {
         const res = await window.api.getUsers();
         if (res.success) setUsers(res.data || []);
+    }
+    if (activeTab === 'management' && isAdmin) {
+        const res = await window.api.getCategories();
+        if (res.success) setCategories(res.data || []);
     }
     setLoading(false);
   };
@@ -91,6 +101,28 @@ export default function Settings() {
       }
   };
 
+  // --- DELETION HANDLERS ---
+  const handleDeleteCategory = async () => {
+      if (!deleteCatId) return;
+      if (!confirm("Are you sure? This Category must be empty (no sub-categories) to delete.")) return;
+      const res = await window.api.deleteCategory(deleteCatId);
+      if (res.success) { alert("Category Deleted"); loadData(); setDeleteCatId(''); } else alert(res.error);
+  };
+
+  const handleDeleteSubCategory = async () => {
+      if (!deleteSubId) return;
+      if (!confirm("Are you sure? This Sub-Category must be empty (no assets) to delete.")) return;
+      const res = await window.api.deleteSubCategory(deleteSubId);
+      if (res.success) { alert("Sub-Category Deleted"); loadData(); setDeleteSubId(''); } else alert(res.error);
+  };
+
+  const handleDeleteAsset = async () => {
+      if (!deleteAssetId) return;
+      if (!confirm("Are you sure? This will permanently delete the Asset history.")) return;
+      const res = await window.api.deleteAsset(deleteAssetId);
+      if (res.success) { alert("Asset Deleted"); setDeleteAssetId(''); } else alert(res.error);
+  };
+
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
       <div className="flex justify-between items-end">
@@ -118,9 +150,14 @@ export default function Settings() {
           <div className="flex items-center gap-2"><Database size={16} /> Data & Backup</div>
         </button>
         {isAdmin && (
-            <button onClick={() => setActiveTab('users')} className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${activeTab === 'users' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
-            <div className="flex items-center gap-2"><User size={16} /> Users</div>
-            </button>
+            <>
+                <button onClick={() => setActiveTab('users')} className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${activeTab === 'users' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+                    <div className="flex items-center gap-2"><User size={16} /> Users</div>
+                </button>
+                <button onClick={() => setActiveTab('management')} className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${activeTab === 'management' ? 'border-red-600 text-red-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+                    <div className="flex items-center gap-2"><AlertOctagon size={16} /> Data Management</div>
+                </button>
+            </>
         )}
       </div>
 
@@ -153,7 +190,6 @@ export default function Settings() {
       {/* USERS TAB (Admin Only) */}
       {activeTab === 'users' && isAdmin && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* User List */}
             <div className="lg:col-span-2 bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
                 <table className="w-full text-left text-sm">
                     <thead className="bg-gray-50 border-b"><tr><th className="p-3 font-medium text-gray-500">Name</th><th className="p-3 font-medium text-gray-500">Username</th><th className="p-3 font-medium text-gray-500">Role</th><th className="p-3 font-medium text-gray-500">Created</th><th className="p-3 font-medium text-gray-500 text-right">Actions</th></tr></thead>
@@ -165,13 +201,7 @@ export default function Settings() {
                                 <td className="p-3"><span className={`px-2 py-1 rounded text-xs font-bold ${u.role==='ADMIN'?'bg-purple-100 text-purple-700':'bg-gray-100 text-gray-700'}`}>{u.role}</span></td>
                                 <td className="p-3 text-gray-400 text-xs">{new Date(u.createdAt).toLocaleDateString()}</td>
                                 <td className="p-3 text-right">
-                                    <button 
-                                        onClick={() => setResetModal({ id: u.id, username: u.username })} 
-                                        className="text-orange-600 hover:bg-orange-50 p-1.5 rounded transition-colors" 
-                                        title="Reset Password"
-                                    >
-                                        <Key size={16} />
-                                    </button>
+                                    <button onClick={() => setResetModal({ id: u.id, username: u.username })} className="text-orange-600 hover:bg-orange-50 p-1.5 rounded transition-colors" title="Reset Password"><Key size={16} /></button>
                                 </td>
                             </tr>
                         ))}
@@ -179,7 +209,6 @@ export default function Settings() {
                 </table>
             </div>
 
-            {/* Create User Form */}
             <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 h-fit">
                 <h3 className="font-bold text-gray-900 mb-4 flex items-center gap-2"><UserPlus size={18}/> Add User</h3>
                 <form onSubmit={handleCreateUser} className="space-y-4">
@@ -191,6 +220,40 @@ export default function Settings() {
                 </form>
             </div>
         </div>
+      )}
+      
+      {/* DATA MANAGEMENT TAB (Admin Only - NEW) */}
+      {activeTab === 'management' && isAdmin && (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="bg-white p-6 rounded-lg border border-red-200 shadow-sm">
+                  <h3 className="font-bold text-red-600 flex items-center gap-2 mb-4"><Trash2 size={18}/> Delete Category</h3>
+                  <p className="text-xs text-gray-500 mb-4">Must be empty (no sub-categories).</p>
+                  <select className="w-full p-2 border rounded mb-2 text-sm" value={deleteCatId} onChange={e => setDeleteCatId(e.target.value)}>
+                      <option value="">Select Category...</option>
+                      {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                  <button onClick={handleDeleteCategory} disabled={!deleteCatId} className="w-full py-2 bg-red-100 text-red-700 rounded hover:bg-red-200 font-medium disabled:opacity-50">Delete</button>
+              </div>
+
+              <div className="bg-white p-6 rounded-lg border border-red-200 shadow-sm">
+                  <h3 className="font-bold text-red-600 flex items-center gap-2 mb-4"><Trash2 size={18}/> Delete Sub-Category</h3>
+                  <p className="text-xs text-gray-500 mb-4">Must be empty (no assets).</p>
+                  <select className="w-full p-2 border rounded mb-2 text-sm" value={deleteSubId} onChange={e => setDeleteSubId(e.target.value)}>
+                      <option value="">Select Sub-Category...</option>
+                      {categories.flatMap(c => c.subCategories.map((s: any) => (
+                          <option key={s.id} value={s.id}>{c.name} / {s.name}</option>
+                      )))}
+                  </select>
+                  <button onClick={handleDeleteSubCategory} disabled={!deleteSubId} className="w-full py-2 bg-red-100 text-red-700 rounded hover:bg-red-200 font-medium disabled:opacity-50">Delete</button>
+              </div>
+
+              <div className="bg-white p-6 rounded-lg border border-red-200 shadow-sm">
+                  <h3 className="font-bold text-red-600 flex items-center gap-2 mb-4"><Trash2 size={18}/> Force Delete Asset</h3>
+                  <p className="text-xs text-gray-500 mb-4">Permanently remove by ID.</p>
+                  <input className="w-full p-2 border rounded mb-2 text-sm" placeholder="Asset ID" value={deleteAssetId} onChange={e => setDeleteAssetId(e.target.value)} />
+                  <button onClick={handleDeleteAsset} disabled={!deleteAssetId} className="w-full py-2 bg-red-100 text-red-700 rounded hover:bg-red-200 font-medium disabled:opacity-50">Delete</button>
+              </div>
+          </div>
       )}
 
       {/* Password Reset Modal */}
