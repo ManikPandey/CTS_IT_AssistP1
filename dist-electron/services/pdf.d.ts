@@ -1,9 +1,5 @@
 export declare function parsePurchaseOrderPDF(filePath: string): Promise<{
     success: boolean;
-    error: string;
-    data?: undefined;
-} | {
-    success: boolean;
     data: {
         poNumber: string;
         date: string;
@@ -13,4 +9,8 @@ export declare function parsePurchaseOrderPDF(filePath: string): Promise<{
         properties: any;
     };
     error?: undefined;
+} | {
+    success: boolean;
+    error: string;
+    data?: undefined;
 }>;
