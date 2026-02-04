@@ -1,62 +1,110 @@
 import fs from 'fs';
-import PDFParser from 'pdf2json';
 
-// ==========================================
-// PDF PARSING SERVICE (pdf2json)
-// ==========================================
-
-export async function parsePurchaseOrderPDF(filePath: string) {
-  console.log(`[PDF] Reading file: ${filePath}`);
-
-  return new Promise<{ success: boolean; data?: any; error?: string }>((resolve) => {
-    const pdfParser = new PDFParser();
-
-    pdfParser.on("pdfParser_dataError", (errData: any) => {
-      console.error("[PDF] Parse Error:", errData.parserError);
-      resolve({ success: false, error: "Failed to parse PDF: " + errData.parserError });
-    });
-
-    pdfParser.on("pdfParser_dataReady", (pdfData: any) => {
-      try {
-        // 1. RAW TEXT EXTRACTION
-        // We accumulate text while trying to preserve lines based on Y-position
-        let rawText = "";
-        
-        // Simple extraction: Join all text items. 
-        // Note: pdf2json outputs URI encoded strings.
-        pdfData.Pages.forEach((page: any) => {
-          page.Texts.forEach((textItem: any) => {
-            textItem.R.forEach((t: any) => {
-              let str = t.T;
-              try { str = decodeURIComponent(t.T); } 
-              catch (e) { try { str = unescape(t.T); } catch (e2) {} }
-              rawText += str;
-            });
-            // Approximate separation
-            rawText += "\n"; 
-          });
-        });
-
-        // 2. PARSE WITH ADVANCED LOGIC
-        const result = parseAdvancedPO(rawText);
-        resolve({ success: true, data: result });
-
-      } catch (e: any) {
-        console.error("[PDF] Processing Error:", e);
-        resolve({ success: false, error: "Error processing PDF text: " + e.message });
-      }
-    });
-
-    try {
-      pdfParser.loadPDF(filePath);
-    } catch (e: any) {
-      resolve({ success: false, error: "Load Error: " + e.message });
-    }
-  });
+// ===========================================================================
+// 🛠️ 1. GLOBAL POLYFILLS (CRITICAL FOR ELECTRON)
+// ===========================================================================
+if (typeof global.DOMMatrix === 'undefined') {
+    // @ts-ignore
+    global.DOMMatrix = class DOMMatrix {
+        public a: number; public b: number; public c: number;
+        public d: number; public e: number; public f: number;
+        constructor() { this.a=1; this.b=0; this.c=0; this.d=1; this.e=0; this.f=0; }
+        multiply() { return this; }
+        translate() { return this; }
+        scale() { return this; }
+        transformPoint(p: any) { return p; }
+    };
+}
+if (typeof global.Path2D === 'undefined') {
+    // @ts-ignore
+    global.Path2D = class Path2D { constructor() {} };
 }
 
-function parseAdvancedPO(text: string) {
-    const result = {
+const pdfjsLib = require('pdfjs-dist/legacy/build/pdf.js');
+
+// --- INTERFACES ---
+export interface POData {
+  poNumber: string;
+  date: string;
+  vendorName: string;
+  gstin: string;
+  billingAddress: string;
+  deliveryAddress: string;
+  termsAndConditions: string;
+  requestRef: string;
+  deptName: string;
+  approvedBy: string;
+  requestType: string;
+  prfRef: string;
+  requestDate: string;
+  actionDate: string;
+  lineItems: LineItem[];
+  properties: any;
+}
+
+export interface LineItem {
+  srNo: string;
+  description: string;
+  qty: number;
+  uom: string;
+  unitPrice: number;
+  gstPercent: number;
+  totalAmount: number;
+}
+
+export async function parsePurchaseOrderPDF(filePath: string): Promise<{ success: boolean; data?: POData; error?: string }> {
+  console.log(`[PDF Parser] Reading file: ${filePath}`);
+
+  try {
+    const dataBuffer = new Uint8Array(fs.readFileSync(filePath));
+
+    // 1. CONFIGURATION
+    const loadingTask = pdfjsLib.getDocument({ 
+        data: dataBuffer,
+        isEvalSupported: false,
+        useSystemFonts: false,      
+        disableFontFace: true,      
+        verbosity: 0 
+    });
+    
+    const pdfDocument = await loadingTask.promise;
+    let rawLines: string[] = [];
+    
+    // 2. TEXT EXTRACTION
+    for (let i = 1; i <= pdfDocument.numPages; i++) {
+        const page = await pdfDocument.getPage(i);
+        const textContent = await page.getTextContent();
+        
+        // Sort items: Top-to-Bottom (Y), then Left-to-Right (X)
+        const items = textContent.items.sort((a: any, b: any) => {
+            const yDiff = b.transform[5] - a.transform[5]; 
+            return Math.abs(yDiff) < 5 ? a.transform[4] - b.transform[4] : yDiff;
+        });
+
+        let lastY = -9999;
+        let currentLine = "";
+
+        for (const item of items) {
+            const y = item.transform[5];
+            const str = item.str;
+
+            // New Line Detection
+            if (lastY !== -9999 && Math.abs(y - lastY) > 5) {
+                if (currentLine.trim()) rawLines.push(currentLine.trim());
+                currentLine = "";
+            }
+            // Add space if separate items
+            if (currentLine && !currentLine.endsWith(" ") && !str.startsWith(" ")) {
+                 currentLine += " "; 
+            }
+            currentLine += str;
+            lastY = y;
+        }
+        if (currentLine.trim()) rawLines.push(currentLine.trim());
+    }
+
+    // 3. INITIALIZE RESULT
+    const result: POData = {
       poNumber: "",
       date: new Date().toISOString().split('T')[0],
       vendorName: "",
@@ -71,166 +119,182 @@ function parseAdvancedPO(text: string) {
       prfRef: "",
       requestDate: "",
       actionDate: "",
-      lineItems: [] as any[],
-      properties: {} as any
+      lineItems: [],
+      properties: {}
     };
 
-    // Normalize: Split into lines, trim
-    const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
-    const fullText = lines.join(' '); // Flat text for regex searching
+    const flatText = rawLines.join(" || ");
 
-    // --- 1. TOKEN SEARCH STRATEGY (Regex) ---
-    // Helper to extract regex match
-    const find = (pattern: RegExp, group = 1) => {
-        const match = fullText.match(pattern);
-        return match ? match[group].trim() : "";
+    // Helper: Safe Extract
+    const extract = (pattern: RegExp, source: string = flatText): string => {
+        const match = source.match(pattern);
+        return (match && match[1]) ? match[1].trim() : "";
     };
 
-    // A. Header Info
-    result.poNumber = find(/(?:PO\s*[#\.]?|Order\s*No\.?)\s*[:\.-]*\s*([A-Z0-9\.-]+)/i) || find(/VIT-B-PO-[\d\.]+/);
-    result.vendorName = find(/PO\s*FOR\s*[:\.-]*\s*([^,:\n]+)/i) || find(/Vendor\s*[:\.-]*\s*([^,:\n]+)/i);
-    result.gstin = find(/GSTIN\s*[:\.-]*\s*([A-Z0-9]{15})/i) || find(/GST\s*[:\.-]*\s*([A-Z0-9]{15})/i);
+    // 4. METADATA (Top Header)
+    result.poNumber = extract(/PO#\s*[:\.]?\s*(VIT-B-PO-[\d\.]+)/i);
+    result.vendorName = extract(/PO\s*For\s*[:\.]?\s*([^,:\n\|]+?)(?=\s*(?:GSTIN|Billing|\|))/i);
+    result.gstin = extract(/\b(\d{2}[A-Z]{5}\d{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1})\b/);
     
-    // Date: Try specific labels first, then generic date pattern
-    let dateStr = find(/Date\s*:\s*(\d{1,2}-\w{3}-\d{4})/i) || find(/Date\s*:\s*(\d{2,4}[-\/]\d{1,2}[-\/]\d{2,4})/i);
-    if (!dateStr) dateStr = find(/(\d{1,2}-(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{4})/i);
-    
+    const dateStr = extract(/Date\s*:\s*(\d{1,2}-[A-Za-z]{3}-\d{4})/i);
     if (dateStr) {
-        const d = new Date(dateStr);
-        if (!isNaN(d.getTime())) result.date = d.toISOString().split('T')[0];
+         const d = new Date(dateStr);
+         if (!isNaN(d.getTime())) result.date = d.toISOString().split('T')[0];
     }
 
-    // B. Metadata (Request details)
-    result.requestRef = find(/Request\s*Ref\s*[:\.-]*\s*([A-Z0-9\.-]+)/i);
-    result.deptName = find(/Dept\s*Name\s*[:\.-]*\s*([A-Za-z\s]+)/i);
-    result.requestType = find(/Request\s*Type\s*[:\.-]*\s*([A-Za-z]+)/i);
-    result.prfRef = find(/PRF\s*Ref\s*[:\.-]*\s*([A-Z0-9]+)/i);
-    result.approvedBy = find(/Approved\s*By\s*[:\.-]*\s*([A-Za-z\s\.]+)/i) || find(/Authorised\s*Signatory\s*[:\.-]*\s*([A-Za-z\s\.]+)/i);
-
-    // Timestamps
-    const reqDate = find(/Request\s*Date\s*[:\.-]*\s*(\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2})/i);
-    if (reqDate) result.requestDate = new Date(reqDate).toISOString();
+    // 5. FOOTER FIELDS (Positional Logic)
+    // Log [28]: "Request Ref: Dept Name:..." -> [29] "IT-25... CTS..."
+    const footerHeaderIdx = rawLines.findIndex(l => l.includes("Request Ref:") && l.includes("Dept Name:"));
     
-    const actDate = find(/Actioned\s*On\s*[:\.-]*\s*(\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2})/i);
-    if (actDate) result.actionDate = new Date(actDate).toISOString();
-
-    // Extra Stats into Properties
-    const processDelay = find(/Process\s*Delay\s*[:\.-]*\s*(\d+\s*days)/i);
-    if (processDelay) result.properties['Process Delay'] = processDelay;
-    
-    const daysLeft = find(/Days\s*Left\s*[:\.-]*\s*(\d+\s*days)/i);
-    if (daysLeft) result.properties['Days Left'] = daysLeft;
-
-
-    // --- 2. ADDRESS BLOCK EXTRACTION ---
-    // We scan lines to find the "Billing" or "Delivery" headers and capture lines until we hit a stop-word
-    let captureMode: 'NONE' | 'BILLING' | 'DELIVERY' = 'NONE';
-    let billingBuffer = [];
-    let deliveryBuffer = [];
-    
-    const stopWords = ['Date:', 'Sr.', 'No', 'PO#', 'Contact:', 'Mobile'];
-
-    for (const line of lines) {
-        const lower = line.toLowerCase();
+    if (footerHeaderIdx !== -1 && rawLines[footerHeaderIdx + 1]) {
+        const valuesLine = rawLines[footerHeaderIdx + 1].trim();
+        const parts = valuesLine.split(/\s+/);
         
-        // Start Capturing
-        if (lower.includes('billing') && lower.includes('address')) { captureMode = 'BILLING'; continue; }
-        if ((lower.includes('site') || lower.includes('delivery')) && lower.includes('address')) { captureMode = 'DELIVERY'; continue; }
-        
-        // Stop Capturing
-        if (stopWords.some(w => line.includes(w))) { captureMode = 'NONE'; }
-        if (captureMode !== 'NONE' && (line.includes('____________') || line.length < 2)) { captureMode = 'NONE'; }
-
-        // Accumulate
-        if (captureMode === 'BILLING') billingBuffer.push(line);
-        if (captureMode === 'DELIVERY') deliveryBuffer.push(line);
-    }
-    result.billingAddress = billingBuffer.slice(0, 5).join('\n'); // Limit to 5 lines
-    result.deliveryAddress = deliveryBuffer.slice(0, 5).join('\n');
-
-
-    // --- 3. TERMS & CONDITIONS EXTRACTION ---
-    // Look for lines starting with "1. ", "2. ", etc.
-    const termsBuffer = [];
-    for (const line of lines) {
-        if (line.match(/^\d+\.\s+[A-Z]/)) {
-            termsBuffer.push(line);
+        if (parts.length >= 4) {
+            result.requestRef = parts[0];
+            result.deptName = parts[1];
+            result.requestType = parts[2];
+            result.prfRef = parts[3];
+            result.approvedBy = parts.slice(4).join(" ");
+            
+            // Map to Properties for Frontend
+            result.properties['Reference No'] = result.requestRef;
+            result.properties['Department'] = result.deptName;
+            result.properties['Request Type'] = result.requestType;
+            result.properties['PRF Ref'] = result.prfRef;
+            result.properties['Approved By'] = result.approvedBy;
+        }
+    } else {
+        // Fallback
+        if (flatText.includes("Gen Admin")) {
+             result.approvedBy = "Gen Admin";
+             result.properties['Approved By'] = "Gen Admin";
         }
     }
-    result.termsAndConditions = termsBuffer.join('\n');
 
-
-    // --- 4. LINE ITEM TABLE PARSING ---
-    // Handles specific CSV-style formatting found in your PDF: "1","Product"...
+    // 6. TIMESTAMPS (Specific Names)
+    // Log [26]: "Request Date: Actioned On:..." -> [27] "2025-08-12..."
+    const timestampHeaderIdx = rawLines.findIndex(l => l.includes("Request Date:") && l.includes("Actioned On:"));
     
-    let currentSrNo = 1;
-    
-    for (const line of lines) {
-        // Strategy A: Quoted CSV (Specific to your file)
-        // Regex looks for: "1","...
-        if (line.includes(`"${currentSrNo}"`) || line.includes(`'${currentSrNo}'`)) {
-            
-            // Split carefully by quote-comma-quote
-            const cols = line.split(/["'],["']/);
-            
-            // Expected: 0=Sr, 1=Name, 2=Qty, 3=UOM, 4=Price, 6=GST, 7=Total (Indices approx)
-            if (cols.length >= 4) {
-                 const rawQty = cols[2].replace(/[",]/g, '');
-                 const rawPrice = cols[4].replace(/[",\s₹]/g, ''); // Index 4 based on your snippet
-                 
-                 const qty = parseFloat(rawQty);
-                 const price = parseFloat(rawPrice);
+    if (timestampHeaderIdx !== -1 && rawLines[timestampHeaderIdx + 1]) {
+        const valuesLine = rawLines[timestampHeaderIdx + 1];
+        // Capture YYYY-MM-DD HH:MM:SS
+        const dates = valuesLine.match(/\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}/g);
+        
+        if (dates && dates.length >= 1) {
+            result.requestDate = dates[0];
+            result.properties['Request Date (PRF)'] = dates[0]; // Exact match for your request
+        }
+        if (dates && dates.length >= 2) {
+            result.actionDate = dates[1];
+            result.properties['Action Date (Approval)'] = dates[1]; // Exact match for your request
+        }
+    } else {
+        // Fallback: Global Date Search
+        const allDates = flatText.match(/\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}/g) || [];
+        if (allDates.length > 0) {
+             result.requestDate = allDates[0] || "";
+             result.properties['Request Date (PRF)'] = allDates[0];
+        }
+        if (allDates.length > 1) {
+             result.actionDate = allDates[1];
+             result.properties['Action Date (Approval)'] = allDates[1];
+        }
+    }
 
-                 if (!isNaN(qty)) {
-                     const name = cols[1].replace(/^["']|["']$/g, '').replace(/[\r\n]+/g, ' ').trim();
-                     const uom = cols[3]?.replace(/["']/g, '') || "Nos";
-                     const gstStr = cols[6]?.replace(/%/g, '') || "18"; // Guessing index 6 for GST based on snippet
-                     
-                     result.lineItems.push({
-                         srNo: currentSrNo,
-                         productName: name,
-                         quantity: qty,
-                         uom: uom,
-                         unitPrice: isNaN(price) ? 0 : price,
-                         gst: parseFloat(gstStr) || 18,
-                         totalAmount: (qty * (isNaN(price)?0:price)) * 1.18 // Auto-calc total
-                     });
-                     currentSrNo++;
-                     continue; 
+
+    // 7. ADDRESS BLOCKS (Split Logic)
+    const getAddress = (isBilling: boolean) => {
+        const startIdx = rawLines.findIndex(l => l.includes("Billing/Institution Address"));
+        if (startIdx === -1) return "";
+        
+        let buffer = [];
+        for (let i = startIdx + 1; i < startIdx + 7; i++) {
+            const line = rawLines[i];
+            if (!line) break;
+            if (line.includes("Sr.") || line.includes("Product Name") || line.includes("Discount")) break;
+            
+            // Split long lines (>30 chars)
+            if (line.length > 30) {
+                 const midpoint = Math.floor(line.length / 2);
+                 const splitIdx = line.indexOf(" ", midpoint); 
+                 if (splitIdx !== -1) {
+                     const left = line.substring(0, splitIdx).trim();
+                     const right = line.substring(splitIdx).trim();
+                     buffer.push(isBilling ? left : right);
+                 } else {
+                     buffer.push(line);
                  }
+            } else {
+                 buffer.push(line);
             }
         }
-        
-        // Strategy B: Whitespace/Tabular Fallback
-        if (line.match(new RegExp(`^${currentSrNo}\\s+`)) || line.match(new RegExp(`^${currentSrNo}\\.`))) {
-             const parts = line.split(/\s{2,}/); // Split by 2+ spaces
-             if (parts.length >= 3) {
-                 const last = parts[parts.length-1].replace(/,/g,'');
-                 const price = parseFloat(last);
-                 
-                 // Guess Qty is 3rd from last
-                 const qtyStr = parts[parts.length-3]?.replace(/,/g,'');
-                 let qty = parseFloat(qtyStr);
-                 if (isNaN(qty)) qty = 1;
+        return buffer.join("\n");
+    };
 
-                 if (!isNaN(price)) {
-                     const descEnd = parts.length - 3;
-                     const name = parts.slice(1, Math.max(1, descEnd)).join(' ');
-                     
-                     result.lineItems.push({
-                         srNo: currentSrNo,
-                         productName: name,
-                         quantity: qty,
-                         uom: "Nos",
-                         unitPrice: price,
-                         gst: 18,
-                         totalAmount: price
-                     });
-                     currentSrNo++;
-                 }
+    result.billingAddress = getAddress(true);
+    result.deliveryAddress = getAddress(false);
+    
+    // Explicit Property Mapping
+    result.properties['Billing Address'] = result.billingAddress;
+    result.properties['Delivery Address'] = result.deliveryAddress;
+    result.properties['GSTIN'] = result.gstin;
+
+
+    // 8. LINE ITEM TABLE (Right-to-Left Logic)
+    for (const line of rawLines) {
+        if (line.includes("Product Name") || line.includes("Unit Price")) continue;
+        if (/\d{4}-\d{2}-\d{2}/.test(line)) continue;
+        
+        const cleanLine = line.replace(/",\s*"/g, " ").replace(/"/g, "");
+
+        const rowMatch = cleanLine.match(/(\d+)\s+(.+?)\s*[-]?\s*(\d+)\s+([A-Za-z]+)\s+([₹]?\s*[\d,]+\.\d{2})\s+([₹]?\s*[\d,]+\.\d{2})\s+(\d+%)\s+([₹]?\s*[\d,]+\.\d{2})/);
+        const simpleMatch = cleanLine.match(/(\d+)\s+(.+?)\s*[-]?\s*(\d+)\s+([A-Za-z]+)\s+([₹]?\s*[\d,.]+)/);
+
+        if (rowMatch) {
+             const qty = parseFloat(rowMatch[3]);
+             const price = parseFloat(rowMatch[5].replace(/[₹,]/g, ''));
+             const total = parseFloat(rowMatch[8].replace(/[₹,]/g, ''));
+             
+             if (qty > 0) {
+                 result.lineItems.push({
+                     srNo: rowMatch[1],
+                     description: rowMatch[2].trim().replace(/-$/, ''),
+                     qty: qty,
+                     uom: rowMatch[4],
+                     unitPrice: price,
+                     gstPercent: parseFloat(rowMatch[7]),
+                     totalAmount: total
+                 });
+             }
+        } 
+        else if (simpleMatch) {
+             const qty = parseFloat(simpleMatch[3]);
+             const price = parseFloat(simpleMatch[5].replace(/[₹,]/g, ''));
+             const desc = simpleMatch[2].trim();
+             
+             if (qty > 0 && !desc.includes(":")) {
+                 result.lineItems.push({
+                     srNo: simpleMatch[1],
+                     description: desc.replace(/-$/, ''),
+                     qty: qty,
+                     uom: simpleMatch[4],
+                     unitPrice: price,
+                     gstPercent: 18, 
+                     totalAmount: (qty * price) * 1.18
+                 });
              }
         }
     }
 
-    return result;
+    // 9. TERMS
+    const terms = rawLines.filter(l => /^\d+\.\s/.test(l));
+    result.termsAndConditions = terms.join("\n");
+
+    return { success: true, data: result };
+
+  } catch (error: any) {
+    console.error("[PDF Error]", error);
+    return { success: false, error: "Parsing Error: " + error.message };
+  }
 }
