@@ -30,7 +30,7 @@ contextBridge.exposeInMainWorld('api', {
   exportExcel: () => ipcRenderer.invoke('inventory:export-excel'),
 
   // --- PURCHASE ORDERS ---
-  getPurchaseOrders: () => ipcRenderer.invoke('purchase:get-all'),
+  getPurchaseOrders: (filters?: any) => ipcRenderer.invoke('purchase:get-all', filters),
   createPurchaseOrder: (data: any) => ipcRenderer.invoke('purchase:create', data),
   deletePurchaseOrder: (id: string) => ipcRenderer.invoke('purchase:delete', id),
   getPurchaseOrder: (id: string) => ipcRenderer.invoke('purchase:get-one', id),

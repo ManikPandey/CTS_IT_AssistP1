@@ -300,14 +300,35 @@ export function registerHandlers() {
   // 4. PURCHASE ORDER HANDLERS
   // ==========================================
 
-  ipcMain.handle('purchase:get-all', async () => {
+  ipcMain.handle('purchase:get-all', async (_, { search, sort, status } = {}) => {
     try {
+      const whereClause: any = {};
+
+      // 1. Search Logic (Checks both PO Number and Vendor Name)
+      if (search && search.trim() !== '') {
+        whereClause.OR = [
+          { poNumber: { contains: search } }, 
+          { vendorNameSnap: { contains: search } }
+        ];
+      }
+
+      // 2. Filter Logic (Status)
+      if (status && status !== 'ALL') {
+        whereClause.status = status;
+      }
+
+      // 3. Sort Logic (Date)
+      const sortDir = sort === 'oldest' ? 'asc' : 'desc';
+
       const pos = await prisma.purchaseOrder.findMany({
-        orderBy: { date: 'desc' },
+        where: whereClause,
+        orderBy: { date: sortDir },
         include: { lineItems: true }
       });
+
       return { success: true, data: pos };
     } catch (error) {
+      console.error("Fetch PO Error:", error);
       return { success: false, error: "Failed to fetch POs" };
     }
   });

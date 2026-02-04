@@ -31,7 +31,7 @@ interface Window {
     exportExcel: () => Promise<{ success: boolean; filePath?: string; error?: string }>;
 
     // --- PURCHASE ORDERS ---
-    getPurchaseOrders: () => Promise<{ success: boolean; data: any[]; error?: string }>;
+    getPurchaseOrders: (filters?: { search?: string, sort?: string, status?: string }) => Promise<{ success: boolean; data: any[]; error?: string }>;
     createPurchaseOrder: (data: any) => Promise<{ success: boolean; data?: any; error?: string }>;
     deletePurchaseOrder: (id: string) => Promise<{ success: boolean; error?: string }>;
     getPurchaseOrder: (id: string) => Promise<{ success: boolean; data?: any; error?: string }>;

@@ -25,7 +25,7 @@ electron_1.contextBridge.exposeInMainWorld('api', {
     importExcel: () => electron_1.ipcRenderer.invoke('inventory:import-excel'),
     exportExcel: () => electron_1.ipcRenderer.invoke('inventory:export-excel'),
     // --- PURCHASE ORDERS ---
-    getPurchaseOrders: () => electron_1.ipcRenderer.invoke('purchase:get-all'),
+    getPurchaseOrders: (filters) => electron_1.ipcRenderer.invoke('purchase:get-all', filters),
     createPurchaseOrder: (data) => electron_1.ipcRenderer.invoke('purchase:create', data),
     deletePurchaseOrder: (id) => electron_1.ipcRenderer.invoke('purchase:delete', id),
     getPurchaseOrder: (id) => electron_1.ipcRenderer.invoke('purchase:get-one', id),

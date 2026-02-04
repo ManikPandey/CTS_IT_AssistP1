@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { Plus, Calendar, Trash2, X, Eye, Printer, PackageCheck, Upload, FileText, FileSpreadsheet, ListPlus, Check, AlertCircle, AlertTriangle } from 'lucide-react';
+// mport { Plus, Calendar, Trash2, X, Eye, Printer, PackageCheck, Upload, FileText, FileSpreadsheet, ListPlus, Check, AlertCircle, AlertTriangle } from 'lucide-react';
+import { Plus, Calendar, Trash2, X, Eye, Printer, PackageCheck, Upload, FileText, FileSpreadsheet, ListPlus, Check, AlertCircle, AlertTriangle, Search, Filter, ArrowUpDown } from 'lucide-react'
 import { cn } from '@/lib/utils';
 import { useUser } from '@/context/UserContext';
 
@@ -50,6 +51,12 @@ export default function PurchaseOrders() {
   
   // Quick Sub-Cat Creation State
   const [quickSubCat, setQuickSubCat] = useState<{ categoryId: string } | null>(null);
+  
+  // PO quick search
+  const [search, setSearch] = useState('');
+  const [sort, setSort] = useState('newest'); 
+  const [statusFilter, setStatusFilter] = useState('ALL');
+
 
   // RBAC
   const { isAdmin } = useUser();
@@ -69,16 +76,25 @@ export default function PurchaseOrders() {
   const [customFields, setCustomFields] = useState<{key: string, value: string}[]>([]);
 
   // --- DATA LOADING ---
+  // --- DATA LOADING (UPDATED) ---
   const loadData = async () => {
     setLoading(true);
-    const [poRes, catRes] = await Promise.all([
-      window.api.getPurchaseOrders(),
-      window.api.getCategories()
-    ]);
+    // Pass filters to the backend
+    const poRes = await window.api.getPurchaseOrders({ search, sort, status: statusFilter });
+    const catRes = await window.api.getCategories();
+
     if (poRes.success) setPos(poRes.data);
     if (catRes.success) setCategories(catRes.data);
     setLoading(false);
   };
+
+  // Trigger load when filters change (Debounced for search)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+        loadData();
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [search, sort, statusFilter]);
 
   useEffect(() => { loadData(); }, []);
 
@@ -682,6 +698,49 @@ export default function PurchaseOrders() {
         </div>
       </div>
       
+      {/* --- FILTER & SEARCH TOOLBAR --- */}
+      <div className="flex flex-col md:flex-row gap-4">
+        {/* Search Input */}
+        <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+            <input 
+                type="text" 
+                placeholder="Search PO Number or Vendor..." 
+                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+            />
+        </div>
+        
+        {/* Status Filter */}
+        <div className="flex items-center gap-2 bg-white border border-gray-300 rounded-lg px-3 py-2">
+            <Filter className="w-4 h-4 text-gray-500" />
+            <select 
+                className="bg-transparent text-sm text-gray-700 outline-none cursor-pointer"
+                value={statusFilter}
+                onChange={e => setStatusFilter(e.target.value)}
+            >
+                <option value="ALL">All Statuses</option>
+                <option value="ISSUED">Issued</option>
+                <option value="COMPLETED">Completed</option>
+                <option value="PARTIAL">Partial</option>
+            </select>
+        </div>
+
+        {/* Sort Order */}
+        <div className="flex items-center gap-2 bg-white border border-gray-300 rounded-lg px-3 py-2">
+            <ArrowUpDown className="w-4 h-4 text-gray-500" />
+            <select 
+                className="bg-transparent text-sm text-gray-700 outline-none cursor-pointer"
+                value={sort}
+                onChange={e => setSort(e.target.value)}
+            >
+                <option value="newest">Newest First</option>
+                <option value="oldest">Oldest First</option>
+            </select>
+        </div>
+      </div>
+
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
          <table className="w-full text-left">
             <thead className="bg-gray-50 border-b">
