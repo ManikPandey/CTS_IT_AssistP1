@@ -1,0 +1,198 @@
+// This is your Database Schema.
+// It defines the structure of your SQLite database.
+
+generator client {
+  provider      = "prisma-client-js"
+  // Output the client code to a folder inside your electron directory
+  output        = "../electron/prisma-client"
+  // Ensure it builds the binary for Windows
+  binaryTargets = ["native", "windows"]
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+// ==========================================
+// 1. AUTHENTICATION & USERS
+// ==========================================
+
+model User {
+  id        String   @id @default(cuid())
+  username  String   @unique
+  password  String // Hashed
+  name      String
+  role      String // "ADMIN" | "USER"
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ==========================================
+// 2. INVENTORY MANAGEMENT SYSTEM
+// ==========================================
+
+model Category {
+  id            String        @id @default(cuid())
+  name          String        @unique // e.g., "Hardware", "Software"
+  slug          String        @unique // e.g., "hardware"
+  description   String?
+  subCategories SubCategory[]
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+}
+
+model SubCategory {
+  id         String   @id @default(cuid())
+  name       String // e.g., "Laptops", "Printers"
+  slug       String
+  categoryId String
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  // Stores column definitions for dynamic forms (e.g. [{"key":"ram", "type":"text"}])
+  fieldDefinitions String @default("[]")
+
+  assets    Asset[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([categoryId, slug])
+}
+
+model Asset {
+  id            String      @id @default(cuid())
+  subCategoryId String
+  subCategory   SubCategory @relation(fields: [subCategoryId], references: [id])
+
+  // Flexible storage for asset details (JSON)
+  // Stores: Name, Serial No, IP, Location, RAM, etc.
+  properties String @default("{}")
+
+  // Status: ACTIVE, RETIRED, MAINTENANCE, IN_STOCK, OUT_STOCK
+  status String @default("ACTIVE")
+
+  // Link to acquisition (Optional)
+  purchaseOrderId String?
+  purchaseOrder   PurchaseOrder? @relation(fields: [purchaseOrderId], references: [id])
+
+  // Link to Maintenance History
+  maintenanceRecords MaintenanceRecord[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ==========================================
+// 3. MAINTENANCE & ISSUES
+// ==========================================
+
+model MaintenanceRecord {
+  id      String @id @default(cuid())
+  assetId String
+  asset   Asset  @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  issueType   String // e.g., "Repair", "Upgrade", "Software", "Breakdown"
+  description String // "Screen flickering..."
+  cost        Float  @default(0.0)
+  status      String // "OPEN", "IN_PROGRESS", "CLOSED"
+
+  reportedBy   String? // Name of user/admin
+  resolvedDate DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ==========================================
+// 4. PROCUREMENT / PURCHASE ORDERS (PO)
+// ==========================================
+
+model Vendor {
+  id        String          @id @default(cuid())
+  name      String
+  gstin     String?
+  email     String?
+  phone     String?
+  address   String?
+  orders    PurchaseOrder[]
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+}
+
+model PurchaseOrder {
+  id       String   @id @default(cuid())
+  poNumber String   @unique // e.g., VIT-B-PO-XX.XXXX
+  date     DateTime
+
+  // Vendor Info
+  vendorId       String?
+  vendor         Vendor? @relation(fields: [vendorId], references: [id])
+  vendorNameSnap String? // Snapshot of vendor name (history protection)
+  gstin          String? // Vendor GSTIN
+
+  // Addresses
+  billingAddress  String?
+  deliveryAddress String?
+
+  // Financials
+  totalAmount Float  @default(0.0)
+  currency    String @default("INR")
+
+  // Workflow / Meta Details
+  status String @default("DRAFT") // DRAFT, ISSUED, PARTIAL, COMPLETED
+
+  // Analytics & Tracking Fields
+  requestRef  String? // IT-25.0075
+  deptName    String? // CTS
+  requestType String? // PRF
+  prfRef      String? // 587
+  approvedBy  String? // Gen Admin
+
+  requestDate DateTime? // For Process Delay calc
+  actionDate  DateTime? // For Order Delay calc
+
+  // Terms & Conditions
+  termsAndConditions String?
+  remarks            String?
+
+  // NEW: Dynamic PO Attributes (e.g. Project Code, Budget Head)
+  // This stores extra fields that don't have a dedicated column
+  properties String @default("{}")
+
+  // Relationships
+  lineItems LineItem[]
+  assets    Asset[] // Assets created from this specific PO
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model LineItem {
+  id              String        @id @default(cuid())
+  purchaseOrderId String
+  purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+
+  srNo        Int
+  productName String
+  quantity    Int
+  uom         String? // Unit of Measure (Nos, Box, Mtrs)
+  unitPrice   Float
+  discount    Float   @default(0.0)
+  gst         Float   @default(18.0) // GST Percentage
+  totalAmount Float // (Price * Qty) + GST
+
+  receivedQty Int @default(0) // Tracks how many items have physically arrived
+}
+
+// ==========================================
+// 5. SYSTEM & AUDIT
+// ==========================================
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  action     String // CREATE, UPDATE, DELETE, IMPORT, EXPORT, LOGIN, BACKUP
+  entityType String // ASSET, PO, SYSTEM, USER
+  entityId   String?
+  details    String? // Description of what changed
+  timestamp  DateTime @default(now())
+}

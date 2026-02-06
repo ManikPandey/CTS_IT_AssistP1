@@ -30,6 +30,15 @@ if (typeof global.Path2D === 'undefined') {
         constructor() { }
     };
 }
+// FIX: Cast global to 'any' to avoid "Index signature" error
+if (typeof global.Canvas === 'undefined') {
+    // @ts-ignore
+    global.canvas = function () { };
+    // @ts-ignore
+    global.HTMLCanvasElement = function () { };
+}
+// Force pdfjs to not try requiring 'canvas'
+process.env.PDFJS_DISABLE_NODE_CANVAS_LOADING = 'true';
 const pdfjsLib = require('pdfjs-dist/legacy/build/pdf.js');
 async function parsePurchaseOrderPDF(filePath) {
     console.log(`[PDF Parser] Reading file: ${filePath}`);

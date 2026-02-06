@@ -20,7 +20,20 @@ if (typeof global.Path2D === 'undefined') {
     global.Path2D = class Path2D { constructor() {} };
 }
 
+// FIX: Cast global to 'any' to avoid "Index signature" error
+if (typeof (global as any).Canvas === 'undefined') {
+    // @ts-ignore
+    (global as any).canvas = function() {}; 
+    // @ts-ignore
+    (global as any).HTMLCanvasElement = function() {};
+}
+
+// Force pdfjs to not try requiring 'canvas'
+process.env.PDFJS_DISABLE_NODE_CANVAS_LOADING = 'true'; 
+
 const pdfjsLib = require('pdfjs-dist/legacy/build/pdf.js');
+
+// const pdfjsLib = require('pdfjs-dist/legacy/build/pdf.js');
 
 // --- INTERFACES ---
 export interface POData {

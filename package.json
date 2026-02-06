@@ -7,7 +7,7 @@
     "dev": "concurrently -k \"npm run dev:ui\" \"npm run dev:electron\"",
     "dev:ui": "vite",
     "dev:electron": "wait-on tcp:5173 && tsc -p electron/tsconfig.json && electron .",
-    "build": "tsc -p electron/tsconfig.json && vite build && electron-builder",
+    "build": "npx prisma generate && tsc -p electron/tsconfig.json && vite build && electron-builder",
     "postinstall": "prisma generate"
   },
   "keywords": [
@@ -37,6 +37,7 @@
   },
   "devDependencies": {
     "@electron/rebuild": "^3.7.2",
+    "@rollup/rollup-win32-x64-msvc": "^4.57.1",
     "@types/node": "^20.11.24",
     "@types/react": "^18.2.61",
     "@types/react-dom": "^18.2.19",
@@ -51,5 +52,50 @@
     "typescript": "^5.3.3",
     "vite": "^5.1.4",
     "wait-on": "^7.2.0"
+  },
+  "build": {
+    "appId": "com.vitbhopal.itmanager",
+    "productName": "IT Asset Manager",
+    "win": {
+      "target": "nsis",
+      "icon": "resources/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true
+    },
+    "directories": {
+      "output": "release"
+    },
+    "asar": true,
+    "asarUnpack": [
+      "node_modules/.prisma/**/*",
+      "node_modules/@prisma/client/**/*"
+    ],
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "package.json",
+      "prisma/schema.prisma",
+      {
+        "from": "node_modules/.prisma",
+        "to": "node_modules/.prisma"
+      },
+      {
+        "from": "node_modules/@prisma/client",
+        "to": "node_modules/@prisma/client"
+      }
+    ],
+    "extraResources": [
+      {
+        "from": "prisma/dev.db",
+        "to": "prisma/dev.db"
+      },
+      {
+        "from": "node_modules/.prisma/client/query_engine-windows.dll.node",
+        "to": "prisma/query_engine-windows.dll.node"
+      }
+    ]
   }
 }

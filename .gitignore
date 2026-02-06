@@ -1,2 +1,9 @@
+prisma/dev.db
+prisma/dev.db-journal
+release
+dist
+dist-electron
+*.log
+.DS_Store
 /node_modules
 package-lock.json
